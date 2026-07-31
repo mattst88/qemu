@@ -49,6 +49,9 @@ typedef struct IA64TranslationMemoryState {
 
 typedef struct IA64TranslationRestartState {
     uint8_t start_slot;
+    /* Slot to resume at when a gdb single-step stops inside a bundle. */
+    uint8_t step_slot;
+    uint64_t step_ip;
     uint8_t current_ri;
     bool current_ri_known;
     bool psr_ic_known;

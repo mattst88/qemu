@@ -1764,6 +1764,16 @@ static inline uint64_t ia64_va_canonicalize(const CPUIA64State *env,
  * stack has to be spilled to the backing store before a handler runs.
  */
 void ia64_gdb_flush_rse(CPUIA64State *env);
+
+/*
+ * GDB addresses an IA-64 instruction as bundle | slot.  Bit 2 is unused in
+ * that encoding, so set it in the addresses handed to the breakpoint list:
+ * a breakpoint can then never be mistaken for a bundle address by the
+ * generic per-TB check in cpu_exec(), which knows nothing about slots.
+ * The translator matches this encoding once per slot instead.
+ */
+#define IA64_GDB_BP_ADDR(bundle, slot) (((bundle) & ~15ULL) | (slot) | 4)
+
 uint64_t ia64_gdb_read_bsp(const CPUIA64State *env);
 uint64_t ia64_user_get_pr(CPUIA64State *env);
 void ia64_user_set_pr(CPUIA64State *env, uint64_t value);

@@ -23,7 +23,9 @@ void helper_check_breakpoint(CPUIA64State *env, uint64_t bundle_ip,
 {
     CPUState *cs = env_cpu(env);
 
-    if (!cpu_breakpoint_test(cs, bundle_ip | slot, BP_GDB)) {
+    if (cs->singlestep_enabled ||
+        !cpu_breakpoint_test(cs, IA64_GDB_BP_ADDR(bundle_ip, slot),
+                             BP_GDB)) {
         return;
     }
     env->ip = bundle_ip;

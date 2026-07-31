@@ -4485,6 +4485,7 @@ static void ia64_tr_init_disas_context(DisasContextBase *db, CPUState *cs)
     }
     ctx->restart.current_ri = ctx->restart.start_slot;
     ctx->restart.current_ri_known = true;
+    ctx->restart.step_slot = 0;
     ctx->restart.psr_ic_known = true;
     ctx->restart.psr_ic = flags & IA64_TB_FLAG_PSR_IC;
     ctx->restart.track_iipa = ctx->base.tb->flags & IA64_TB_FLAG_PSR_IC;
@@ -4640,6 +4641,18 @@ static void ia64_tr_translate_insn(DisasContextBase *db, CPUState *cs)
             continue;
         }
 
+        /*
+         * A gdb single-step is one instruction, not one bundle, so stop
+         * before the next slot and resume there.
+         */
+        if (unlikely(tb_cflags(db->tb) & CF_SINGLE_STEP) &&
+            slot != ctx->restart.start_slot) {
+            ctx->restart.step_slot = slot;
+            ctx->restart.step_ip = bundle_ip;
+            db->is_jmp = DISAS_TOO_MANY;
+            break;
+        }
+
         if (unlikely(tb_cflags(db->tb) & CF_BP_PAGE)) {
             gen_helper_check_breakpoint(tcg_env,
                                         tcg_constant_i64(bundle_ip),
@@ -4751,6 +4764,13 @@ void ia64_gen_goto_tb_group(DisasContext *ctx, uint64_t dest,
 
     ia64_gen_store_instruction_group_start(group_start);
     ia64_gen_save_fault_slot_for_exit(ctx);
+    if (ctx->restart.step_slot != 0) {
+        /* Resuming mid-bundle: the TB key differs, so never chain. */
+        ia64_gen_set_ri(ctx->restart.step_slot);
+        tcg_gen_movi_i64(cpu_ip, ctx->restart.step_ip);
+        tcg_gen_lookup_and_goto_ptr();
+        return;
+    }
     ia64_gen_clear_ri();
     tcg_gen_movi_i64(cpu_ip, dest);
     if (slot < 2 && ctx->memory.direct_chain_nat_safe &&

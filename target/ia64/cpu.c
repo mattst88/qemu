@@ -279,6 +279,11 @@ static void ia64_restore_state_to_opc(CPUState *cs,
     cpu->env.ip = data[0];
 }
 
+static vaddr ia64_cpu_gdb_adjust_breakpoint(CPUState *cs, vaddr addr)
+{
+    return IA64_GDB_BP_ADDR(addr, addr & 3);
+}
+
 static int ia64_cpu_mmu_index(CPUState *cs, bool ifetch)
 {
     IA64CPU *cpu = ia64_cpu_from_cpu_state(cs);
@@ -2173,6 +2178,7 @@ static void ia64_cpu_class_init(ObjectClass *oc, const void *data)
 #ifndef CONFIG_USER_ONLY
     cc->sysemu_ops = &ia64_sysemu_ops;
 #endif
+    cc->gdb_adjust_breakpoint = ia64_cpu_gdb_adjust_breakpoint;
     cc->gdb_read_register = ia64_cpu_gdb_read_register;
     cc->gdb_write_register = ia64_cpu_gdb_write_register;
     cc->gdb_num_core_regs = IA64_GDB_NUM_CORE_REGS;
