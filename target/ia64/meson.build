@@ -29,8 +29,6 @@ ia64_ss.add(files(
   'ia32/excp_helper.c',
   'ia32/system_helper.c',
   'ia32/transition_helper.c',
-  'machine.c',
-  'rse-migration.c',
   'translate/gen-branch.c',
   'translate/gen-fp.c',
   'translate/gen-integer.c',
@@ -52,4 +50,12 @@ ia64_ss.add(files(
   'helper/helper-simd.c',
   'helper/helper-system.c',
 ))
+
+ia64_system_ss = ss.source_set()
+ia64_system_ss.add(files(
+  'machine.c',
+  'rse-migration.c',
+))
+
 target_arch += {'ia64': ia64_ss}
+target_system_arch += {'ia64': ia64_system_ss}

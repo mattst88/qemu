@@ -3,6 +3,7 @@
  *
  *  Copyright (c) 2003-2008 Fabrice Bellard
  *  Copyright (c) 2013-14 Stacey Son
+ *  Copyright (c) 2026 René Rebe <rene@exactco.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -37,6 +38,7 @@
 #include "qemu/module.h"
 #include "qemu/plugin.h"
 #include "user/guest-base.h"
+#include "user/guest-fold.h"
 #include "user/page-protection.h"
 #include "accel/accel-ops.h"
 #include "tcg/startup.h"
@@ -64,6 +66,7 @@ static bool opt_one_insn_per_tb;
 static unsigned long opt_tb_size;
 uintptr_t guest_base;
 bool have_guest_base;
+GUEST_FOLD_DEFINE_STATE();
 /*
  * When running 32-on-64 we should make sure we can fit all of the possible
  * guest address space into a contiguous chunk of virtual host memory.

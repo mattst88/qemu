@@ -2710,3 +2710,73 @@ uint64_t ia64_rse_cloop_fill_st1(CPUIA64State *env, uint32_t base_reg,
     }
     return 0;
 }
+
+#ifdef CONFIG_USER_ONLY
+/*
+ * linux-user entry points.  The kernel's signal and clone paths manipulate
+ * the register stack directly; these give linux-user the same operations
+ * without exposing the partition bookkeeping.
+ */
+uint64_t ia64_user_get_pr(CPUIA64State *env)
+{
+    return ia64_system_read_pr(env);
+}
+
+void ia64_user_set_pr(CPUIA64State *env, uint64_t value)
+{
+    ia64_system_write_pr(env, value, ~0ULL);
+}
+
+static void ia64_user_rebase_backing_store(CPUIA64State *env, uint64_t base,
+                                           uint64_t rnat, uint32_t frame)
+{
+    ia64_rse_rnat_undefined(env, "user-rebase");
+    env->ar_bsp = base;
+    env->ar_bspstore = base;
+    env->rse.rse_dirty = 0;
+    env->rse.rse_dirty_nat = 0;
+    env->rse.rse_clean = 0;
+    env->rse.rse_clean_nat = 0;
+    env->rse.rse_invalid = IA64_STACKED_GR_COUNT - frame;
+    env->rse.rse_cfle = false;
+    /* Software supplies RNAT for the collection containing the new base. */
+    env->ar_rnat = rnat;
+    ia64_rse_rnat_reloaded(env);
+}
+
+/* Give a cloned thread an empty backing store at "base". */
+void ia64_user_set_rbs(CPUIA64State *env, uint64_t base)
+{
+    ia64_rse_sync_frame_out(env);
+    ia64_user_rebase_backing_store(env, base & ~7ULL, 0, env->cfm_sof);
+    ia64_rse_check(env, "user-set-rbs");
+}
+
+/*
+ * Signal delivery: push the interrupted frame into the dirty partition and
+ * spill everything, as the kernel does before it builds the sigcontext.
+ */
+void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp)
+{
+    *cfm = ia64_rse_current_cfm(env);
+    ia64_rse_cover(env);
+    ia64_rse_flush(env, 0);
+    *bsp = env->ar_bsp;
+}
+
+/*
+ * sigreturn: the handler's frames are dead.  The caller has already placed
+ * the sigcontext's RNAT in AR.RNAT; adopt it for the collection containing
+ * "bsp" and refill the interrupted frame from the backing store.
+ */
+void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm, uint64_t bsp)
+{
+    uint64_t rnat = env->ar_rnat;
+
+    ia64_rse_cover(env);
+    env->rse.rse_bol = 0;
+    ia64_user_rebase_backing_store(env, bsp & ~7ULL, rnat, 0);
+    ia64_rse_return_to_frame(env, cfm & IA64_IFS_IFM_MASK,
+                             cfm & IA64_CFM_SOF_MASK);
+}
+#endif /* CONFIG_USER_ONLY */

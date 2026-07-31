@@ -2,6 +2,7 @@
  *  qemu user main
  *
  *  Copyright (c) 2003-2008 Fabrice Bellard
+ *  Copyright (c) 2026 René Rebe <rene@exactco.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -39,6 +40,7 @@
 #include "qemu/module.h"
 #include "qemu/plugin.h"
 #include "user/guest-base.h"
+#include "user/guest-fold.h"
 #include "user/page-protection.h"
 #include "exec/gdbstub.h"
 #include "gdbstub/user.h"
@@ -81,6 +83,7 @@ static const char *seed_optarg;
 unsigned long mmap_min_addr;
 uintptr_t guest_base;
 bool have_guest_base;
+GUEST_FOLD_DEFINE_STATE();
 
 /*
  * Used to implement backwards-compatibility for the `-strace`, and
@@ -700,6 +703,10 @@ int main(int argc, char **argv, char **envp)
     bool preserve_argv0;
 
     error_init(argv[0]);
+#ifdef TARGET_GUEST_FOLD_SHIFT
+    guest_addr_fold_init(TARGET_GUEST_FOLD_REGION_SHIFT,
+                         TARGET_GUEST_FOLD_SHIFT);
+#endif
     module_call_init(MODULE_INIT_TRACE);
     qemu_init_cpu_list();
     module_call_init(MODULE_INIT_QOM);

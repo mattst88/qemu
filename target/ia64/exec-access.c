@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * TCG softmmu implementation of the IA-64 execution access boundary.
+ * TCG implementation of the IA-64 execution access boundary.
  */
 
 #include "qemu/osdep.h"
@@ -16,8 +16,10 @@
 #include "exec/cpu-common.h"
 #include "exec/tlb-flags.h"
 #include "exec/translation-block.h"
+#ifndef CONFIG_USER_ONLY
 #include "system/address-spaces.h"
 #include "system/memory.h"
+#endif
 
 bool ia64_exec_is_parallel(CPUIA64State *env)
 {
@@ -166,7 +168,9 @@ uint64_t ia64_exec_rse_store_collection(CPUIA64State *env, uint64_t addr,
                                         uint64_t *previous, uintptr_t ra)
 {
     static int non_ram_reported;
+#ifndef CONFIG_USER_ONLY
     CPUTLBEntryFull *full;
+#endif
     void *host;
     uint64_t old = 0;
     int flags;
@@ -182,6 +186,15 @@ uint64_t ia64_exec_rse_store_collection(CPUIA64State *env, uint64_t addr,
         return value;
     }
 
+#ifdef CONFIG_USER_ONLY
+    /* User-mode guest memory is always ordinary host RAM. */
+    (void)non_ram_reported;
+    (void)flags;
+    (void)writable_ram;
+    host = probe_access(env, addr, 8, MMU_DATA_STORE, mmu_idx, ra);
+    g_assert(host != NULL);
+    old = big_endian ? ldq_be_p(host) : ldq_le_p(host);
+#else
     flags = probe_access_full(env, addr, 8, MMU_DATA_STORE, mmu_idx, false,
                               &host, &full, ra);
     writable_ram = memory_region_is_ram(full->section->mr) &&
@@ -211,6 +224,7 @@ uint64_t ia64_exec_rse_store_collection(CPUIA64State *env, uint64_t addr,
                       "0x%016" PRIx64 " cannot preserve undefined bits "
                       "(flags=0x%x)\n", addr, flags);
     }
+#endif
 
     *previous = old;
     value = ((old & ~defined) | value) & INT64_MAX;
@@ -330,6 +344,51 @@ bool ia64_exec_probe_host(CPUIA64State *env, uint64_t addr, int size,
     return direct;
 }
 
+#ifdef CONFIG_USER_ONLY
+/* User-mode guest memory is always speculatable writeback host RAM. */
+bool ia64_exec_probe_writeback_ram(CPUIA64State *env, uint64_t addr,
+                                   int size, MMUAccessType access_type,
+                                   bool *direct, uintptr_t ra)
+{
+    int mmu_idx = cpu_mmu_index(env_cpu(env), false);
+
+    probe_access(env, addr, size, access_type, mmu_idx, ra);
+    *direct = true;
+    return true;
+}
+
+bool ia64_exec_probe_writeback(CPUIA64State *env, uint64_t addr,
+                               int size, MMUAccessType access_type,
+                               uintptr_t ra)
+{
+    int mmu_idx = cpu_mmu_index(env_cpu(env), false);
+
+    while (size > 0) {
+        int page_offset = addr & ((1u << TARGET_PAGE_BITS) - 1);
+        int page_left = (1u << TARGET_PAGE_BITS) - page_offset;
+        int chunk = MIN(size, page_left);
+
+        probe_access(env, addr, chunk, access_type, mmu_idx, ra);
+        addr += chunk;
+        size -= chunk;
+    }
+    return true;
+}
+
+bool ia64_exec_advanced_load_allowed(CPUIA64State *env, uint64_t addr,
+                                     int mmu_idx)
+{
+    return true;
+}
+
+/* There is no soft TLB to consult; callers take the fully qualified path. */
+bool ia64_exec_cached_load_translation(
+    CPUIA64State *env, uint64_t addr, int mmu_idx,
+    IA64CachedLoadTranslation *translation)
+{
+    return false;
+}
+#else
 bool ia64_exec_probe_writeback_ram(CPUIA64State *env, uint64_t addr,
                                    int size, MMUAccessType access_type,
                                    bool *direct, uintptr_t ra)
@@ -413,12 +472,27 @@ bool ia64_exec_cached_load_translation(
     return true;
 }
 
+#endif /* CONFIG_USER_ONLY */
+
 bool ia64_exec_debug_read(CPUState *cs, uint64_t addr, void *buffer,
                           size_t size)
 {
     return cpu_memory_rw_debug(cs, addr, buffer, size, false) == 0;
 }
 
+#ifdef CONFIG_USER_ONLY
+/* No guest-physical address space exists in user mode. */
+bool ia64_exec_physical_rw(uint64_t addr, void *buffer, size_t size,
+                           bool is_write)
+{
+    return false;
+}
+
+void ia64_exec_invalidate_phys_range(CPUIA64State *env, uint64_t addr,
+                                     uint64_t length)
+{
+}
+#else
 bool ia64_exec_physical_rw(uint64_t addr, void *buffer, size_t size,
                            bool is_write)
 {
@@ -458,3 +532,4 @@ void ia64_exec_invalidate_phys_range(CPUIA64State *env, uint64_t addr,
         remaining -= len;
     }
 }
+#endif /* CONFIG_USER_ONLY */

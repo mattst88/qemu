@@ -103,7 +103,7 @@
 #define TARGET_IOC_WRITE  2U
 #define TARGET_IOC_READ   1U
 
-#elif defined(TARGET_HEXAGON)
+#elif defined(TARGET_HEXAGON) || defined(TARGET_IA64)
 
 #define TARGET_IOC_SIZEBITS     14
 
@@ -2087,6 +2087,32 @@ struct target_stat64 {
     abi_uint   target_st_ctime_nsec;
     abi_ullong st_ino;
 };
+
+#elif defined(TARGET_IA64)
+
+/* arch/ia64/include/uapi/asm/stat.h */
+#define TARGET_STAT_HAVE_NSEC
+struct target_stat {
+    abi_ulong st_dev;
+    abi_ulong st_ino;
+    abi_ulong st_nlink;
+    abi_uint  st_mode;
+    abi_uint  st_uid;
+    abi_uint  st_gid;
+    abi_uint  __pad0;
+    abi_ulong st_rdev;
+    abi_ulong st_size;
+    abi_ulong target_st_atime;
+    abi_ulong target_st_atime_nsec;
+    abi_ulong target_st_mtime;
+    abi_ulong target_st_mtime_nsec;
+    abi_ulong target_st_ctime;
+    abi_ulong target_st_ctime_nsec;
+    abi_ulong st_blksize;
+    abi_long  st_blocks;
+    abi_ulong __unused[3];
+};
+
 #else
 #error unsupported CPU
 #endif

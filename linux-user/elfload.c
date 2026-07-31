@@ -1085,11 +1085,44 @@ static void pgb_dynamic(const char *image_name, uintptr_t guest_loaddr,
     guest_base = ret;
 }
 
+/*
+ * The guest address space is folded into one contiguous host window.
+ * Reserve the whole window up front so that neither the host libc nor a
+ * later guest mapping can land somewhere the guest does not expect.
+ */
+static void pgb_folded(const char *image_name, uintptr_t align)
+{
+    size_t span = guest_fold_span;
+    void *p;
+
+    p = mmap(NULL, span + align, PROT_NONE,
+             MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
+    if (p == MAP_FAILED) {
+        error_report("%s: cannot reserve 0x%zx bytes of host virtual "
+                     "address space for the guest", image_name, span);
+        exit(EXIT_FAILURE);
+    }
+    guest_base = ROUND_UP((uintptr_t)p, align);
+}
+
 void probe_guest_base(const char *image_name, abi_ulong guest_loaddr,
                       abi_ulong guest_hiaddr)
 {
     /* In order to use host shmat, we must be able to honor SHMLBA.  */
     uintptr_t align = MAX(SHMLBA, TARGET_PAGE_SIZE);
+
+    if (guest_addr_is_folded()) {
+        if (!guest_addr_foldable(guest_loaddr) ||
+            !guest_addr_foldable(guest_hiaddr)) {
+            error_report("%s: image at 0x%" PRIx64 "-0x%" PRIx64
+                         " does not fit the folded guest address space",
+                         image_name, (uint64_t)guest_loaddr,
+                         (uint64_t)guest_hiaddr);
+            exit(EXIT_FAILURE);
+        }
+        pgb_folded(image_name, align);
+        goto done;
+    }
 
     /* Sanity check the guest binary. */
     if (reserved_va) {
@@ -1120,6 +1153,7 @@ void probe_guest_base(const char *image_name, abi_ulong guest_loaddr,
         g_assert_not_reached();
     }
 
+ done:
     assert(QEMU_IS_ALIGNED(guest_base, align));
     qemu_log_mask(CPU_LOG_PAGE, "Locating guest address space "
                   "@ 0x%" PRIx64 "\n", (uint64_t)guest_base);
@@ -1421,6 +1455,37 @@ static void load_elf_image(const char *image_name, const ImageSource *src,
         align_size += align - 1;
     }
 
+    if (guest_addr_is_folded() &&
+        !guest_range_valid_untagged(loaddr, reserve_size)) {
+        /*
+         * A folded address space can put an ET_EXEC's segments in separate
+         * regions, which are far too far apart to reserve as one range.
+         * Claim each PT_LOAD on its own; ET_EXEC keeps its own addresses,
+         * so there is no load bias to derive from the reservation.
+         */
+        if (ehdr->e_type != ET_EXEC) {
+            error_setg(&err, "Image does not fit the guest address space");
+            goto exit_errmsg;
+        }
+        for (i = 0; i < ehdr->e_phnum; ++i) {
+            struct elf_phdr *eppnt = phdr + i;
+            abi_ulong a, b;
+
+            if (eppnt->p_type != PT_LOAD) {
+                continue;
+            }
+            a = eppnt->p_vaddr & TARGET_PAGE_MASK;
+            b = TARGET_PAGE_ALIGN(eppnt->p_vaddr + eppnt->p_memsz);
+            if (target_mmap(a, b - a, PROT_NONE,
+                            MAP_PRIVATE | MAP_ANON | MAP_NORESERVE |
+                            MAP_FIXED_NOREPLACE, -1, 0) == -1) {
+                goto exit_mmap;
+            }
+        }
+        load_addr = loaddr;
+        goto mapped;
+    }
+
     load_addr = target_mmap(load_addr, align_size, PROT_NONE,
                             MAP_PRIVATE | MAP_ANON | MAP_NORESERVE |
                             (ehdr->e_type == ET_EXEC ? MAP_FIXED_NOREPLACE : 0),
@@ -1443,6 +1508,7 @@ static void load_elf_image(const char *image_name, const ImageSource *src,
         load_addr = align_addr;
     }
 
+ mapped:
     load_bias = load_addr - loaddr;
 
     if (elf_is_fdpic(ehdr)) {

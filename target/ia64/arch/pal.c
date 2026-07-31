@@ -223,7 +223,9 @@ static bool pal_halt_light(CPUIA64State *env)
      * merely ended the current translation block; cpu_exec could then run on
      * with a stale halted flag and stop later at an unrelated instruction.
      */
+#ifndef CONFIG_USER_ONLY
     cpu_set_interrupt(cs, CPU_INTERRUPT_HALT);
+#endif
     return true;
 }
 
@@ -326,7 +328,9 @@ static bool pal_halt(CPUIA64State *env)
     env->gr[IA64_PAL_GR_RESULT3] = 0;
     env->interrupt.pal_halt_wake = true;
     ia64_itc_enter_halt(env);
+#ifndef CONFIG_USER_ONLY
     cpu_set_interrupt(cs, CPU_INTERRUPT_HALT);
+#endif
     return true;
 }
 

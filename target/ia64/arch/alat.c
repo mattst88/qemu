@@ -5,7 +5,24 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 #include "exec/cpu-common.h"
+#ifdef CONFIG_USER_ONLY
+/* Every guest store goes through TCG, so no external writer exists. */
+static inline uint64_t physical_memory_write_generation(void)
+{
+    return 0;
+}
+
+static inline bool physical_memory_write_generation_changed(uint64_t gen)
+{
+    return false;
+}
+
+static inline void physical_memory_write_generation_advance(void)
+{
+}
+#else
 #include "system/physmem.h"
+#endif
 #include "arch/arch.h"
 
 #define IA64_ROTATING_FR_BASE 32

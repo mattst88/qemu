@@ -3,6 +3,7 @@
  * guest <-> host helpers.
  *
  *  Copyright (c) 2003 Fabrice Bellard
+ *  Copyright (c) 2026 René Rebe <rene@exactco.de>
  */
 
 #ifndef USER_GUEST_HOST_H
@@ -10,6 +11,7 @@
 
 #include "exec/vaddr.h"
 #include "user/guest-base.h"
+#include "user/guest-fold.h"
 #include "accel/tcg/cpu-ops.h"
 
 /*
@@ -46,7 +48,7 @@ static inline vaddr cpu_untagged_addr_vaddr(CPUState *cs, vaddr x)
 /* All direct uses of g2h and h2g need to go away for usermode softmmu.  */
 static inline void *g2h_untagged_vaddr(vaddr x)
 {
-    return (void *)((uintptr_t)(x) + guest_base);
+    return (void *)((uintptr_t)guest_addr_fold(x) + guest_base);
 }
 
 static inline void *g2h_vaddr(CPUState *cs, vaddr x)
@@ -56,20 +58,26 @@ static inline void *g2h_vaddr(CPUState *cs, vaddr x)
 
 static inline bool guest_addr_valid_untagged_vaddr(vaddr x)
 {
-    return x <= guest_addr_max;
+    return x <= guest_addr_max && guest_addr_foldable(x);
 }
 
 static inline bool guest_range_valid_untagged_vaddr(vaddr start, vaddr len)
 {
-    return len - 1 <= guest_addr_max && start <= guest_addr_max - len + 1;
+    if (len - 1 > guest_addr_max || start > guest_addr_max - len + 1) {
+        return false;
+    }
+    /* A folded range must not run past the window of its own region. */
+    return guest_addr_foldable(start) &&
+           len - 1 <= guest_addr_region_last(start) - start;
 }
 
 #define h2g_valid(x) \
-    ((uintptr_t)(x) - guest_base <= guest_addr_max)
+    ((uintptr_t)(x) - guest_base <= \
+     (guest_addr_is_folded() ? guest_fold_span - 1 : guest_addr_max))
 
 #define h2g_nocheck(x) ({ \
     uintptr_t __ret = (uintptr_t)(x) - guest_base; \
-    (vaddr)__ret; \
+    (vaddr)guest_addr_unfold(__ret); \
 })
 
 #define h2g(x) ({ \

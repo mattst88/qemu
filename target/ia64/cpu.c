@@ -28,17 +28,21 @@
 #include "exec/page-protection.h"
 #include "exec/target_page.h"
 #include "exec/translation-block.h"
+#ifndef CONFIG_USER_ONLY
 #include "hw/core/sysemu-cpu-ops.h"
 #include "hw/ia64/ia64_ras.h"
+#endif
 #include "accel/tcg/cpu-ops.h"
 #include "tcg/debug-assert.h"
 #include "exec/translator.h"
 #include "exec/helper-proto.h"
+#ifndef CONFIG_USER_ONLY
 #include "system/memory.h"
 #include "system/address-spaces.h"
 #include "system/physmem.h"
 #include "system/qtest.h"
 #include "system/tcg.h"
+#endif
 
 #define HELPER_H "helper.h"
 #include "exec/helper-info.c.inc"
@@ -285,6 +289,7 @@ static int ia64_cpu_mmu_index(CPUState *cs, bool ifetch)
     return MMU_PHYS_IDX;
 }
 
+#ifndef CONFIG_USER_ONLY
 static vaddr ia64_pointer_wrap(CPUState *cs, int mmu_idx,
                                vaddr result, vaddr base)
 {
@@ -387,6 +392,8 @@ static void ia64_record_suppressed_tlb_fill_if_needed(
     }
 }
 
+#endif /* !CONFIG_USER_ONLY */
+
 void ia64_flush_suppressed_tlb(CPUIA64State *env)
 {
     CPUState *cs = env_cpu(env);
@@ -406,6 +413,7 @@ void ia64_flush_suppressed_tlb(CPUIA64State *env)
     env->exception_state.suppressed_tlb_overflow = false;
 }
 
+#ifndef CONFIG_USER_ONLY
 static void ia64_tlb_set_entry_page(CPUState *cs, vaddr addr, hwaddr pa,
                                     uint64_t page_size, int prot, int mmu_idx,
                                     IA64MemorySpeculation speculation,
@@ -787,6 +795,7 @@ raise_exception:
     cpu_loop_exit_restore(cs, retaddr);
 }
 
+#endif /* !CONFIG_USER_ONLY */
 
 bool ia64_firmware_contains(CPUIA64State *env, uint64_t address)
 {
@@ -924,9 +933,11 @@ static void ia64_cpu_reset_hold(Object *obj, ResetType type)
         icc->parent_phases.hold(obj, type);
     }
 
+#ifndef CONFIG_USER_ONLY
     if (cpu->itm_timer != NULL) {
         timer_del(cpu->itm_timer);
     }
+#endif
     g_assert(!cpu->env.alat_state.write_active);
     memset(&cpu->env, 0, sizeof(cpu->env));
     cpu->mca_rse_valid = false;
@@ -1019,6 +1030,7 @@ static void ia64_cpu_list(void)
     }
 }
 
+#ifndef CONFIG_USER_ONLY
 typedef struct IA64QTestStaleVictimWork {
     uint64_t va;
     uint64_t old_pa;
@@ -1963,6 +1975,8 @@ static void ia64_register_qtest_command(void)
     }
 }
 
+#endif /* !CONFIG_USER_ONLY */
+
 static void ia64_cpu_realize(DeviceState *dev, Error **errp)
 {
     CPUState *cs = CPU(dev);
@@ -1979,15 +1993,19 @@ static void ia64_cpu_realize(DeviceState *dev, Error **errp)
         error_propagate(errp, local_err);
         return;
     }
+#ifndef CONFIG_USER_ONLY
     if (cpu->alat_full) {
         physical_memory_write_observer_enable();
     }
 
     cpu->itm_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ia64_itm_timer_cb, cpu);
+#endif
 
     qemu_init_vcpu(cs);
     cpu_reset(cs);
+#ifndef CONFIG_USER_ONLY
     ia64_register_qtest_command();
+#endif
 
     icc->parent_realize(dev, errp);
 }
@@ -1996,10 +2014,12 @@ static void ia64_cpu_finalize(Object *obj)
 {
     IA64CPU *cpu = IA64_CPU(obj);
 
+#ifndef CONFIG_USER_ONLY
     if (cpu->itm_timer != NULL) {
         timer_free(cpu->itm_timer);
         cpu->itm_timer = NULL;
     }
+#endif
 }
 
 static void ia64_cpu_unrealize(DeviceState *dev)
@@ -2007,17 +2027,71 @@ static void ia64_cpu_unrealize(DeviceState *dev)
     IA64CPU *cpu = IA64_CPU(dev);
     IA64CPUClass *icc = IA64_CPU_GET_CLASS(dev);
 
+#ifndef CONFIG_USER_ONLY
     if (cpu->itm_timer != NULL) {
         timer_free(cpu->itm_timer);
         cpu->itm_timer = NULL;
     }
+#endif
     icc->parent_unrealize(dev);
 }
 
+#ifndef CONFIG_USER_ONLY
 static const struct SysemuCPUOps ia64_sysemu_ops = {
     .has_work = ia64_cpu_has_work,
     .get_phys_page_debug = ia64_cpu_get_phys_page_debug,
 };
+#endif
+
+#ifdef CONFIG_USER_ONLY
+/*
+ * Record the IA-64 fault state a sysemu interruption would have latched and
+ * return; the generic user-mode code raises the host signal from here.
+ */
+static void ia64_cpu_record_sigsegv(CPUState *cs, vaddr addr,
+                                    MMUAccessType access_type,
+                                    bool maperr, uintptr_t ra)
+{
+    CPUIA64State *env = cpu_env(cs);
+    bool is_ifetch = access_type == MMU_INST_FETCH;
+
+    cpu_restore_state(cs, ra);
+    env->exception_state.fault_ip = env->ip;
+    env->exception_state.fault_addr = addr;
+    env->exception_state.fault_imm = 0;
+    env->exception_state.fault_slot =
+        (env->psr & IA64_PSR_RI_MASK) >> IA64_PSR_RI_SHIFT;
+    env->cr_ifa = addr;
+    env->cr_isr = is_ifetch ? IA64_ISR_X :
+                  (access_type == MMU_DATA_STORE ? IA64_ISR_W : IA64_ISR_R);
+    if (maperr) {
+        env->exception_state.exception =
+            is_ifetch ? IA64_EXCP_ALT_ITLB : IA64_EXCP_ALT_DTLB;
+    } else {
+        env->exception_state.exception =
+            is_ifetch ? IA64_EXCP_INST_ACCESS : IA64_EXCP_DATA_ACCESS;
+    }
+}
+
+static void ia64_cpu_record_sigbus(CPUState *cs, vaddr addr,
+                                   MMUAccessType access_type, uintptr_t ra)
+{
+    CPUIA64State *env = cpu_env(cs);
+
+    cpu_restore_state(cs, ra);
+    env->exception_state.fault_ip = env->ip;
+    env->exception_state.fault_addr = addr;
+    env->exception_state.fault_imm = 0;
+    env->exception_state.fault_slot =
+        (env->psr & IA64_PSR_RI_MASK) >> IA64_PSR_RI_SHIFT;
+    env->cr_ifa = addr;
+    env->cr_isr = access_type == MMU_DATA_STORE ? IA64_ISR_W : IA64_ISR_R;
+    if (ia64_current_code_tlb_ed(env)) {
+        env->cr_isr |= IA64_ISR_ED;
+    }
+    env->exception_state.exception = IA64_EXCP_UNALIGNED;
+}
+#endif /* CONFIG_USER_ONLY */
 
 static bool ia64_precise_smc_enabled(CPUState *cs)
 {
@@ -2056,15 +2130,18 @@ static const TCGCPUOps ia64_tcg_ops = {
     .restore_state_to_opc = ia64_restore_state_to_opc,
     .cpu_exec_longjmp_cleanup = ia64_cpu_exec_longjmp_cleanup,
     .mmu_index = ia64_cpu_mmu_index,
+#ifdef CONFIG_USER_ONLY
+    .record_sigsegv = ia64_cpu_record_sigsegv,
+    .record_sigbus = ia64_cpu_record_sigbus,
+#else
     .tlb_fill = ia64_cpu_tlb_fill,
     .pointer_wrap = ia64_pointer_wrap,
-#ifndef CONFIG_USER_ONLY
     .do_unaligned_access = ia64_cpu_do_unaligned_access,
-#endif
     .cpu_exec_interrupt = ia64_cpu_exec_interrupt,
     .cpu_exec_halt = ia64_cpu_has_work,
     .cpu_exec_reset = cpu_reset,
     .do_interrupt = ia64_cpu_do_interrupt,
+#endif
 };
 
 #define IA64_ITANIUM2_MEMORY_ATTRIBUTE_MASK \
@@ -2093,12 +2170,16 @@ static void ia64_cpu_class_init(ObjectClass *oc, const void *data)
     cc->dump_state = ia64_cpu_dump_state;
     cc->set_pc = ia64_cpu_set_pc;
     cc->get_pc = ia64_cpu_get_pc;
+#ifndef CONFIG_USER_ONLY
     cc->sysemu_ops = &ia64_sysemu_ops;
+#endif
     cc->gdb_read_register = ia64_cpu_gdb_read_register;
     cc->gdb_write_register = ia64_cpu_gdb_write_register;
     cc->gdb_num_core_regs = IA64_GDB_NUM_CORE_REGS;
     cc->tcg_ops = &ia64_tcg_ops;
+#ifndef CONFIG_USER_ONLY
     dc->vmsd = &vmstate_ia64_cpu;
+#endif
 
     icc->semantic_profile_abi = 1;
     icc->model = IA64_CPU_MODEL_MONTECITO;

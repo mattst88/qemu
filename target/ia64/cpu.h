@@ -8,10 +8,6 @@
 #include "hw/ia64/ia64_vpc_abi.h"
 #include "qemu/timer.h"
 
-#ifdef CONFIG_USER_ONLY
-#error "IA-64 target supports system mode only"
-#endif
-
 #define CPU_RESOLVING_TYPE TYPE_IA64_CPU
 
 #undef NB_MMU_MODES
@@ -22,6 +18,11 @@
 #define MMU_IDX_VIRT_CPL3  4
 #define MMU_IDX_RSE        5
 #define NB_MMU_MODES       6
+
+#ifdef CONFIG_USER_ONLY
+/* Linux user processes always run virtually translated at cpl 3. */
+#define MMU_USER_IDX       MMU_IDX_VIRT_CPL3
+#endif
 
 #define MMU_IDX_VIRT_CPL(cpl) (MMU_IDX_VIRT_CPL0 + (cpl))
 #define MMU_IDX_VIRT_MASK \
@@ -1481,7 +1482,11 @@ static inline bool ia64_external_interrupt_vector_valid(uint8_t vector)
 
 static inline int64_t ia64_itc_clock_ns(void)
 {
+#ifdef CONFIG_USER_ONLY
+    return get_clock();
+#else
     return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+#endif
 }
 
 static inline uint64_t ia64_itc_read(CPUIA64State *env)
@@ -1750,5 +1755,19 @@ static inline uint64_t ia64_va_canonicalize(const CPUIA64State *env,
 
     return region | payload;
 }
+
+#ifdef CONFIG_USER_ONLY
+/*
+ * Signal frame support for linux-user (target/ia64/arch/rse.c).  The frame
+ * carries the architected register state as a flat structure, so the
+ * predicates have to be packed into the architected bitmap and the register
+ * stack has to be spilled to the backing store before a handler runs.
+ */
+uint64_t ia64_user_get_pr(CPUIA64State *env);
+void ia64_user_set_pr(CPUIA64State *env, uint64_t value);
+void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp);
+void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm, uint64_t bsp);
+void ia64_user_set_rbs(CPUIA64State *env, uint64_t base);
+#endif /* CONFIG_USER_ONLY */
 
 #endif

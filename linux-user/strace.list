@@ -103,6 +103,9 @@
 #ifdef TARGET_NR_clone
 { TARGET_NR_clone, "clone" , NULL, print_clone, NULL },
 #endif
+#ifdef TARGET_NR_clone2
+{ TARGET_NR_clone2, "clone2" , "%s(0x%08x,0x" TARGET_ABI_FMT_lx ",0x" TARGET_ABI_FMT_lx ",0x" TARGET_ABI_FMT_lx ",0x" TARGET_ABI_FMT_lx ",0x" TARGET_ABI_FMT_lx ")", NULL, NULL },
+#endif
 #ifdef TARGET_NR_close
 { TARGET_NR_close, "close" , "%s(%d)", NULL, NULL },
 #endif

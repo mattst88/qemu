@@ -2,6 +2,7 @@
  * Tiny Code Generator for QEMU
  *
  * Copyright (c) 2008 Fabrice Bellard
+ * Copyright (c) 2026 René Rebe <rene@exactco.de>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +34,9 @@
 #include "tcg-internal.h"
 #include "tcg-has.h"
 #include "tcg-target-mo.h"
+#ifdef CONFIG_USER_ONLY
+#include "user/guest-fold.h"
+#endif
 
 static void check_max_alignment(unsigned a_bits)
 {
@@ -138,6 +142,32 @@ static TCGTemp *tci_extend_addr(TCGTemp *addr)
     }
 #endif
     return addr;
+}
+
+/*
+ * Generated code reaches the host by adding guest_base alone, so a guest
+ * whose sparse address space is folded into a smaller host window has to
+ * have the fold applied here; see include/user/guest-fold.h.  The C side
+ * folds inside g2h() instead, and a helper slow path reached from here
+ * therefore folds an already folded address, which the fold tolerates.
+ */
+static TCGTemp *gen_ldst_addr(TCGTemp *addr)
+{
+#ifdef CONFIG_USER_ONLY
+    if (guest_addr_is_folded()) {
+        TCGv_i64 folded = tcg_temp_ebb_new_i64();
+        TCGv_i64 region = tcg_temp_ebb_new_i64();
+
+        tcg_debug_assert(tcg_ctx->addr_type == TCG_TYPE_I64);
+        tcg_gen_shri_i64(region, temp_tcgv_i64(addr),
+                         guest_fold_region_shift);
+        tcg_gen_deposit_i64(folded, temp_tcgv_i64(addr), region,
+                            guest_fold_shift, 64 - guest_fold_shift);
+        tcg_temp_free_i64(region);
+        return tcgv_i64_temp(folded);
+    }
+#endif
+    return tci_extend_addr(addr);
 }
 
 static void maybe_free_addr(TCGTemp *addr, TCGTemp *copy)
@@ -259,7 +289,7 @@ static void tcg_gen_qemu_ld_i32_int(TCGv_i32 val, TCGTemp *addr,
         oi = make_memop_idx(memop, idx);
     }
 
-    addr_new = tci_extend_addr(addr);
+    addr_new = gen_ldst_addr(addr);
     copy_addr = plugin_maybe_preserve_addr(addr);
     gen_ldst1(INDEX_op_qemu_ld, TCG_TYPE_I32, tcgv_i32_temp(val), addr_new, oi);
 
@@ -318,7 +348,7 @@ static void tcg_gen_qemu_st_i32_int(TCGv_i32 orig_val, TCGTemp *addr,
         oi = make_memop_idx(memop, idx);
     }
 
-    addr_new = tci_extend_addr(addr);
+    addr_new = gen_ldst_addr(addr);
     gen_ldst1(INDEX_op_qemu_st, TCG_TYPE_I32, tcgv_i32_temp(val), addr_new, oi);
     plugin_gen_mem_callbacks_i32(orig_val, NULL, addr, orig_oi,
                                  QEMU_PLUGIN_MEM_W);
@@ -358,7 +388,7 @@ static void tcg_gen_qemu_ld_i64_int(TCGv_i64 val, TCGTemp *addr,
         oi = make_memop_idx(memop, idx);
     }
 
-    addr_new = tci_extend_addr(addr);
+    addr_new = gen_ldst_addr(addr);
     copy_addr = plugin_maybe_preserve_addr(addr);
     gen_ld_i64(val, addr_new, oi);
 
@@ -424,7 +454,7 @@ static void tcg_gen_qemu_st_i64_int(TCGv_i64 orig_val, TCGTemp *addr,
         oi = make_memop_idx(memop, idx);
     }
 
-    addr_new = tci_extend_addr(addr);
+    addr_new = gen_ldst_addr(addr);
     gen_st_i64(val, addr_new, oi);
     plugin_gen_mem_callbacks_i64(orig_val, NULL, addr, orig_oi,
                                  QEMU_PLUGIN_MEM_W);
@@ -567,7 +597,7 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
             hi = TCGV128_HIGH(val);
         }
 
-        addr_new = tci_extend_addr(addr);
+        addr_new = gen_ldst_addr(addr);
         gen_ldst2(INDEX_op_qemu_ld2, TCG_TYPE_I128, tcgv_i64_temp(lo),
                   tcgv_i64_temp(hi), addr_new, oi);
         maybe_free_addr(addr, addr_new);
@@ -598,7 +628,7 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
             y = TCGV128_LOW(val);
         }
 
-        addr_new = tci_extend_addr(addr);
+        addr_new = gen_ldst_addr(addr);
         gen_ld_i64(x, addr_new, make_memop_idx(mop[0], idx));
         maybe_free_addr(addr, addr_new);
 
@@ -616,7 +646,7 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
             addr_p8 = tcgv_i64_temp(t);
         }
 
-        addr_new = tci_extend_addr(addr_p8);
+        addr_new = gen_ldst_addr(addr_p8);
         gen_ld_i64(y, addr_new, make_memop_idx(mop[1], idx));
         maybe_free_addr(addr_p8, addr_new);
         tcg_temp_free_internal(addr_p8);
@@ -683,7 +713,7 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
             hi = TCGV128_HIGH(val);
         }
 
-        addr_new = tci_extend_addr(addr);
+        addr_new = gen_ldst_addr(addr);
         gen_ldst2(INDEX_op_qemu_st2, TCG_TYPE_I128,
                   tcgv_i64_temp(lo), tcgv_i64_temp(hi), addr_new, oi);
         maybe_free_addr(addr, addr_new);
@@ -713,7 +743,7 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
             x = b;
         }
 
-        addr_new = tci_extend_addr(addr);
+        addr_new = gen_ldst_addr(addr);
         gen_st_i64(x, addr_new, make_memop_idx(mop[0], idx));
         maybe_free_addr(addr, addr_new);
 
@@ -727,7 +757,7 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
             addr_p8 = tcgv_i64_temp(t);
         }
 
-        addr_new = tci_extend_addr(addr_p8);
+        addr_new = gen_ldst_addr(addr_p8);
         if (b) {
             tcg_gen_bswap64_i64(b, y);
             gen_st_i64(b, addr_new, make_memop_idx(mop[1], idx));

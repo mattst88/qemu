@@ -8,6 +8,10 @@
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "cpu.h"
+#include "exec/page-protection.h"
+#ifdef CONFIG_USER_ONLY
+#include "user/page-protection.h"
+#endif
 #include "arch/arch.h"
 #include "exec-access.h"
 #include "exec/cpu-common.h"
@@ -1502,6 +1506,31 @@ ia64_data_reference_exception(CPUIA64State *env, uint64_t va,
     if (result) {
         result->valid = false;
     }
+
+#ifdef CONFIG_USER_ONLY
+    /*
+     * User mode has no guest page tables; the protection linux-user tracks
+     * is the whole story.  Answer from it so probe, lfetch, speculative
+     * loads and the access checks behave as they would under a kernel that
+     * has the page mapped.
+     */
+    {
+        int flags = page_get_flags(va);
+        int need = is_rw ? (PAGE_READ | PAGE_WRITE) :
+                   (is_write ? PAGE_WRITE : PAGE_READ);
+
+        if (!(flags & PAGE_VALID)) {
+            return IA64_EXCP_ALT_DTLB;
+        }
+        if ((flags & need) != need) {
+            return IA64_EXCP_DATA_ACCESS;
+        }
+        ia64_set_data_reference_result(result, va, IA64_MEM_SPECULATIVE,
+                                       IA64_PTE_MA_WB);
+        return IA64_EXCP_NONE;
+    }
+#endif
+
     if (!(env->psr & (is_rse ? IA64_PSR_RT : IA64_PSR_DT))) {
         if (!ia64_pa_is_implemented(env, va)) {
             return IA64_EXCP_UNIMPL_DATA_ADDR;

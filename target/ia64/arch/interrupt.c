@@ -263,8 +263,10 @@ void ia64_sapic_update_interrupt(CPUIA64State *env)
                     env->pal.pal_pmi_entry != 0);
 
     if (special || sapic_find_irr(env) != IA64_SPURIOUS_VECTOR) {
+#ifndef CONFIG_USER_ONLY
         cpu_set_interrupt(cs, CPU_INTERRUPT_HARD);
         qemu_cpu_kick(cs);
+#endif
     } else {
         cpu_reset_interrupt(cs, CPU_INTERRUPT_HARD);
     }
@@ -575,6 +577,14 @@ static bool ia64_itm_update_pending(CPUIA64State *env, uint64_t itc,
     return true;
 }
 
+#ifdef CONFIG_USER_ONLY
+/* No interval timer interrupt can be delivered to a user-mode process. */
+void ia64_itm_update(CPUIA64State *env, uint64_t itm_value)
+{
+    ia64_itc_advance_pending_itm(env);
+    env->interrupt.itm_armed = false;
+}
+#else
 static void ia64_itm_timer_work(CPUState *cs, run_on_cpu_data data)
 {
     IA64CPU *cpu = ia64_cpu_from_cpu_state(cs);
@@ -642,6 +652,7 @@ void ia64_itm_update(CPUIA64State *env, uint64_t itm_value)
                    ia64_itv_vector(env));
     timer_mod(cpu->itm_timer, deadline_ns);
 }
+#endif /* CONFIG_USER_ONLY */
 
 void ia64_itc_sync(CPUIA64State *env)
 {

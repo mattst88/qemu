@@ -2,6 +2,7 @@
  *  mmap support for qemu
  *
  *  Copyright (c) 2003 Fabrice Bellard
+ *  Copyright (c) 2026 René Rebe <rene@exactco.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -283,7 +284,7 @@ int target_mprotect(abi_ulong start, abi_ulong len, int target_prot)
  */
 static int do_munmap(void *addr, size_t len)
 {
-    if (reserved_va) {
+    if (reserved_va || guest_addr_is_folded()) {
         void *ptr = mmap(addr, len, PROT_NONE,
                          MAP_FIXED | MAP_ANONYMOUS
                          | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
@@ -424,14 +425,24 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size,
                                         abi_ulong align)
 {
     target_ulong ret = -1;
+    abi_ulong first, last;
 
-    if (start <= reserved_va) {
-        ret = page_find_range_empty(start, reserved_va, size, align);
+    if (guest_addr_is_folded()) {
+        /* Stay inside the window of the region the search starts in. */
+        first = start & ~(abi_ulong)guest_fold_off_mask;
+        last = guest_addr_region_last(start);
+    } else {
+        first = mmap_min_addr;
+        last = reserved_va;
     }
-    if (ret == -1 && start > mmap_min_addr) {
+    first = MAX(first, mmap_min_addr);
+
+    if (start <= last) {
+        ret = page_find_range_empty(start, last, size, align);
+    }
+    if (ret == -1 && start > first) {
         /* Restart at the beginning of the address space. */
-        ret = page_find_range_empty(mmap_min_addr, MIN(start - 1, reserved_va),
-                                    size, align);
+        ret = page_find_range_empty(first, MIN(start - 1, last), size, align);
     }
 
     return ret;
@@ -461,7 +472,7 @@ abi_ulong mmap_find_vma(abi_ulong start, abi_ulong size, abi_ulong align)
     start = ROUND_UP(start, align);
     size = ROUND_UP(size, host_page_size);
 
-    if (reserved_va) {
+    if (reserved_va || guest_addr_is_folded()) {
         return mmap_find_vma_reserved(start, size, align);
     }
 
@@ -921,7 +932,7 @@ static abi_long target_mmap__locked(abi_ulong start, abi_ulong len,
      * For reserved_va, we are in full control of the allocation.
      * Find a suitable hole and convert to MAP_FIXED.
      */
-    if (reserved_va) {
+    if (reserved_va || guest_addr_is_folded()) {
         if (flags & MAP_FIXED_NOREPLACE) {
             /* Validate that the chosen range is empty. */
             if (!page_check_range_empty(start, start + len - 1)) {
@@ -1183,7 +1194,8 @@ abi_long target_mremap(abi_ulong old_addr, abi_ulong old_size,
         host_addr = mremap(g2h_untagged(old_addr), old_size, new_size,
                            flags, g2h_untagged(new_addr));
 
-        if (reserved_va && host_addr != MAP_FAILED) {
+        if ((reserved_va || guest_addr_is_folded()) &&
+            host_addr != MAP_FAILED) {
             /*
              * If new and old addresses overlap then the above mremap will
              * already have failed with EINVAL.

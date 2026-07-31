@@ -2,6 +2,7 @@
  *  Linux syscalls
  *
  *  Copyright (c) 2003 Fabrice Bellard
+ *  Copyright (c) 2026 René Rebe <rene@exactco.de>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -11638,6 +11639,18 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         ret = get_errno(do_fork(cpu_env, arg1, arg2, arg3, arg5, arg4));
 #endif
         return ret;
+#ifdef TARGET_NR_clone2
+    case TARGET_NR_clone2:
+        /*
+         * IA-64 needs the size as well: the memory stack grows down from
+         * the top of the supplied region while the register backing store
+         * grows up from its base.
+         */
+        cpu_clone_set_rbs(cpu_env, arg2);
+        ret = get_errno(do_fork(cpu_env, arg1, arg2 ? arg2 + arg3 - 16 : 0,
+                                arg4, arg6, arg5));
+        return ret;
+#endif
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:

@@ -396,10 +396,12 @@ void helper_bnd_jmp(CPUX86State *xenv)
     ia32_instruction_intercept(xenv);
 }
 
+#ifndef CONFIG_USER_ONLY
 void cpu_svm_check_intercept_param(CPUX86State *xenv, uint32_t type,
                                    uint64_t param, uintptr_t retaddr)
 {
 }
+#endif
 
 void cpu_sync_bndcs_hflags(CPUX86State *xenv)
 {
@@ -429,6 +431,7 @@ int x86_mmu_index_pl(CPUX86State *xenv, unsigned pl)
     return cpu_mmu_index(env_cpu(env), false);
 }
 
+#ifndef CONFIG_USER_ONLY
 uint32_t x86_ldl_phys(CPUState *cs, hwaddr addr)
 {
     return address_space_ldl_le(&address_space_memory, addr,
@@ -440,6 +443,7 @@ void x86_stl_phys(CPUState *cs, hwaddr addr, uint32_t value)
     address_space_stl_le(&address_space_memory, addr, value,
                          MEMTXATTRS_UNSPECIFIED, NULL);
 }
+#endif
 
 void handle_even_inj(CPUX86State *xenv, int intno, int is_int,
                      int error_code, int is_hw, int rm)
