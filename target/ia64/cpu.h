@@ -1763,6 +1763,8 @@ static inline uint64_t ia64_va_canonicalize(const CPUIA64State *env,
  * predicates have to be packed into the architected bitmap and the register
  * stack has to be spilled to the backing store before a handler runs.
  */
+void ia64_gdb_flush_rse(CPUIA64State *env);
+uint64_t ia64_gdb_read_bsp(const CPUIA64State *env);
 uint64_t ia64_user_get_pr(CPUIA64State *env);
 void ia64_user_set_pr(CPUIA64State *env, uint64_t value);
 void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp);

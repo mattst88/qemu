@@ -105,6 +105,9 @@ int ia64_cpu_gdb_read_register(CPUState *cs, GByteArray *buf, int reg)
     CPUIA64State *env = &cpu->env;
     uint64_t val = 0;
 
+    /* GDB unwinds through the backing store, so it has to be complete. */
+    ia64_gdb_flush_rse(env);
+
     if (reg >= IA64_GDB_GR0_REGNUM && reg < IA64_GDB_FR0_REGNUM) {
         val = reg == 0 ? 0 : env->gr[reg];
     } else if (reg < IA64_GDB_PR0_REGNUM) {
@@ -127,14 +130,19 @@ int ia64_cpu_gdb_read_register(CPUState *cs, GByteArray *buf, int reg)
     } else if (reg == IA64_GDB_PR_REGNUM) {
         val = ia64_gdb_read_pr(env);
     } else if (reg == IA64_GDB_IP_REGNUM) {
-        val = env->ip;
+        /* GDB addresses an IA-64 instruction as bundle | slot. */
+        val = env->ip |
+              ((env->psr & IA64_PSR_RI_MASK) >> IA64_PSR_RI_SHIFT);
     } else if (reg == IA64_GDB_PSR_REGNUM) {
         val = env->psr;
     } else if (reg == IA64_GDB_CFM_REGNUM) {
         val = ia64_gdb_read_cfm(env);
     } else if (reg >= IA64_GDB_AR0_REGNUM &&
                reg < IA64_GDB_NUM_CORE_REGS) {
-        val = ia64_system_read_ar(env, reg - IA64_GDB_AR0_REGNUM);
+        unsigned ar = reg - IA64_GDB_AR0_REGNUM;
+
+        val = ar == 17 ? ia64_gdb_read_bsp(env) :
+                         ia64_system_read_ar(env, ar);
     } else {
         return 0;
     }
@@ -183,7 +191,11 @@ int ia64_cpu_gdb_write_register(CPUState *cs, uint8_t *buf, int reg)
     } else if (reg == IA64_GDB_PR_REGNUM) {
         ia64_gdb_write_pr(env, val);
     } else if (reg == IA64_GDB_IP_REGNUM) {
-        env->ip = val;
+        uint64_t slot = val & 3;
+
+        env->ip = val & ~15ULL;
+        env->psr = (env->psr & ~IA64_PSR_RI_MASK) |
+                   ((slot > 2 ? 0 : slot) << IA64_PSR_RI_SHIFT);
     } else if (reg == IA64_GDB_PSR_REGNUM) {
         ia64_system_mov_psr_write(env, val, 0);
     } else if (reg == IA64_GDB_CFM_REGNUM) {

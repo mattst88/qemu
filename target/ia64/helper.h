@@ -3,6 +3,7 @@ typedef union MMXReg MMXReg;
 typedef union ZMMReg ZMMReg;
 
 DEF_HELPER_5(raise_exception, noreturn, env, i32, i64, i64, i32)
+DEF_HELPER_3(check_breakpoint, void, env, i64, i32)
 DEF_HELPER_FLAGS_7(check_native_traps, TCG_CALL_NO_WG,
                    void, env, i64, i64, i32, i32, i64, i64)
 DEF_HELPER_3(raise_nat_consumption, noreturn, env, i64, i64)

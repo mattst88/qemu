@@ -4640,6 +4640,12 @@ static void ia64_tr_translate_insn(DisasContextBase *db, CPUState *cs)
             continue;
         }
 
+        if (unlikely(tb_cflags(db->tb) & CF_BP_PAGE)) {
+            gen_helper_check_breakpoint(tcg_env,
+                                        tcg_constant_i64(bundle_ip),
+                                        tcg_constant_i32(slot));
+        }
+
         Ia64Instruction insn = decoded[slot];
         bool known_nullified;
         bool stop_after;

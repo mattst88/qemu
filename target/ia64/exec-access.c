@@ -533,3 +533,13 @@ void ia64_exec_invalidate_phys_range(CPUIA64State *env, uint64_t addr,
     }
 }
 #endif /* CONFIG_USER_ONLY */
+
+/* True if a store of "size" bytes at "addr" cannot complete without a fault. */
+bool ia64_exec_store_would_fault(CPUIA64State *env, uint64_t addr, int size,
+                                 int mmu_idx)
+{
+    void *host;
+
+    return probe_access_flags(env, addr, size, MMU_DATA_STORE, mmu_idx, true,
+                              &host, 0) & TLB_INVALID_MASK;
+}

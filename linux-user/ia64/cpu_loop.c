@@ -67,6 +67,83 @@ static void ia64_set_syscall_result(CPUIA64State *env, abi_long ret)
     env->nat[0] &= ~((1ULL << 8) | (1ULL << 10));
 }
 
+/*
+ * IA-64 specific si_code values (asm-generic/siginfo.h) that linux-user has
+ * no generic name for.
+ */
+#define TARGET_ILL_BREAK        10
+#define TARGET_ILL_BNDMOD       11
+#define TARGET_FPE_DECOVF        9
+#define TARGET_FPE_DECDIV       10
+#define TARGET_FPE_DECERR       11
+#define TARGET_FPE_INVASC       12
+#define TARGET_FPE_INVDEC       13
+#define TARGET_SEGV_PSTKOVF      4
+
+/*
+ * arch/ia64/kernel/traps.c:ia64_bad_break().  A break is a fault, so the
+ * instruction pointer stays on the faulting bundle and the reported address
+ * carries the slot number in its low bits - which is also how a debugger
+ * addresses an individual instruction.
+ */
+static void ia64_break_signal(CPUIA64State *env)
+{
+    uint64_t imm = env->exception_state.fault_imm;
+    int sig = TARGET_SIGILL;
+    int code = TARGET_ILL_ILLOPC;
+
+    switch (imm) {
+    case 0:                             /* __builtin_abort() */
+        break;
+    case 1:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_INTDIV;
+        break;
+    case 2:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_INTOVF;
+        break;
+    case 3:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_FLTSUB;
+        break;
+    case 4:
+        sig = TARGET_SIGSEGV, code = TARGET_SEGV_MAPERR;
+        break;
+    case 5:
+        /* The kernel really does pair SIGSEGV with BUS_ADRALN here. */
+        sig = TARGET_SIGSEGV, code = TARGET_BUS_ADRALN;
+        break;
+    case 6:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_DECOVF;
+        break;
+    case 7:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_DECDIV;
+        break;
+    case 8:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_DECERR;
+        break;
+    case 9:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_INVASC;
+        break;
+    case 10:
+        sig = TARGET_SIGFPE, code = TARGET_FPE_INVDEC;
+        break;
+    case 11:
+        sig = TARGET_SIGSEGV, code = TARGET_SEGV_PSTKOVF;
+        break;
+    case 0x3f000 ... 0x3ffff:           /* bundle update in progress */
+        code = TARGET_ILL_BNDMOD;
+        break;
+    default:
+        if (imm < 0x80000) {
+            code = TARGET_ILL_BREAK;
+        } else {
+            sig = TARGET_SIGTRAP, code = TARGET_TRAP_BRKPT;
+        }
+        break;
+    }
+
+    force_sig_fault(sig, code, env->exception_state.fault_ip | env->exception_state.fault_slot);
+}
+
 static void ia64_do_syscall(CPUIA64State *env)
 {
     abi_long ret;
@@ -110,9 +187,8 @@ void cpu_loop(CPUIA64State *env)
             if (env->exception_state.fault_imm == TARGET_BREAK_SYSCALL) {
                 ia64_do_syscall(env);
             } else {
-                ia64_advance_slot(env);
-                force_sig_fault(TARGET_SIGTRAP, TARGET_TRAP_BRKPT,
-                                env->exception_state.fault_ip);
+                ia64_repeat_slot(env);
+                ia64_break_signal(env);
             }
             break;
 
@@ -169,7 +245,10 @@ void cpu_loop(CPUIA64State *env)
             break;
 
         case EXCP_DEBUG:
-            force_sig_fault(TARGET_SIGTRAP, TARGET_TRAP_BRKPT, env->ip);
+            force_sig_fault(TARGET_SIGTRAP, TARGET_TRAP_BRKPT,
+                            env->ip |
+                            ((env->psr & IA64_PSR_RI_MASK) >>
+                             IA64_PSR_RI_SHIFT));
             break;
 
         case EXCP_ATOMIC:

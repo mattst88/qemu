@@ -2711,6 +2711,68 @@ uint64_t ia64_rse_cloop_fill_st1(CPUIA64State *env, uint32_t base_reg,
     return 0;
 }
 
+/*
+ * arch/ia64/kernel/ptrace.c: "By convention, we use PT_AR_BSP to refer to
+ * the end of the user-level backing store.  Use ia64_rse_skip_regs(
+ * PT_AR_BSP, -CFM.sof) to get the real value of ar.bsp".  A debugger
+ * locates GR32 of the current frame that way, so report AR.BSP the way
+ * ptrace does rather than the architectural value.
+ */
+uint64_t ia64_gdb_read_bsp(const CPUIA64State *env)
+{
+    uint32_t sof = env->cfm_sof;
+
+    return env->ar_bsp +
+           8 * (sof + ia64_rse_nat_words_grow(env->ar_bsp, sof));
+}
+
+/*
+ * A debugger reads a frame's stacked registers out of the backing store.
+ * On real hardware any entry into a kernel covers the interrupted frame
+ * and flushes the dirty partition (ia64_flush_rs), so a stopped task
+ * always has a complete backing store.  Reproduce that view for the gdb
+ * stub, but leave the RSE partitions alone so execution resumes
+ * unchanged, and give up rather than fault if a store cannot proceed.
+ */
+void ia64_gdb_flush_rse(CPUIA64State *env)
+{
+    int mmu_idx = ia64_rse_mmu_index(env);
+    uint64_t addr;
+    uint64_t nat = 0;
+    uint32_t i;
+
+    ia64_rse_sync_frame_out(env);
+
+    while (env->rse.rse_dirty + env->rse.rse_dirty_nat > 0) {
+        if (ia64_exec_store_would_fault(env, env->ar_bspstore, 8, mmu_idx)) {
+            return;
+        }
+        ia64_rse_store_one(env, 0);
+    }
+
+    /* Mirror the current frame where a cover would have placed it. */
+    addr = env->ar_bsp;
+    for (i = 0; i < env->cfm_sof; i++) {
+        uint32_t p = ia64_rse_wrap_phys((int32_t)env->rse.rse_bol + i);
+
+        if (ia64_exec_store_would_fault(env, addr, 8, mmu_idx)) {
+            return;
+        }
+        if (ia64_rse_collect_bit(addr) == 63) {
+            ia64_rse_write_u64(env, addr, nat, 0);
+            nat = 0;
+            addr += 8;
+            i--;
+            continue;
+        }
+        if (ia64_rse_pgr_nat_get(env, p)) {
+            nat |= 1ULL << ia64_rse_collect_bit(addr);
+        }
+        ia64_rse_write_u64(env, addr, env->rse.rse_pgr[p], 0);
+        addr += 8;
+    }
+}
+
 #ifdef CONFIG_USER_ONLY
 /*
  * linux-user entry points.  The kernel's signal and clone paths manipulate
