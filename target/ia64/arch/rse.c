@@ -2824,6 +2824,11 @@ void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp)
     ia64_rse_cover(env);
     ia64_rse_flush(env, 0);
     *bsp = env->ar_bsp;
+    /*
+     * An asynchronous signal can arrive in the middle of an instruction
+     * group.  The handler is a fresh control flow, as after an interruption.
+     */
+    env->instruction_group_start = true;
 }
 
 /*
@@ -2840,5 +2845,7 @@ void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm, uint64_t bsp)
     ia64_user_rebase_backing_store(env, bsp & ~7ULL, rnat, 0);
     ia64_rse_return_to_frame(env, cfm & IA64_IFS_IFM_MASK,
                              cfm & IA64_CFM_SOF_MASK);
+    /* As after rfi: group boundaries are not part of the saved context. */
+    env->instruction_group_start = true;
 }
 #endif /* CONFIG_USER_ONLY */
