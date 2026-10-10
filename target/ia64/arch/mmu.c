@@ -1648,6 +1648,18 @@ static bool ia64_speculative_exception_deferrable(CPUIA64State *env,
 {
     uint64_t dcr_mask;
 
+#ifdef CONFIG_USER_ONLY
+    /*
+     * Linux never lets a control-speculative load fault reach user space:
+     * its DCR defers the translation and protection faults, and the page
+     * fault handler turns what is left (ISR.sp set on a bad address) into
+     * a NaT by setting IPSR.ed.  There is no kernel here to do the latter,
+     * so defer unconditionally; chk.s recovery repeats the access
+     * non-speculatively and takes any real fault there.
+     */
+    return true;
+#endif
+
     if (!(env->psr & IA64_PSR_IC)) {
         return true;
     }
