@@ -9654,6 +9654,76 @@ _syscall5(int, sys_move_mount, int, __from_dfd, const char *, __from_pathname,
            int, __to_dfd, const char *, __to_pathname, unsigned int, flag)
 #endif
 
+#ifdef TARGET_IA64
+/*
+ * getunwind() returns the unwind data of the gate DSO in the kernel's
+ * format: unw_table_entry's holding absolute addresses and an info_offset
+ * relative to the start of the buffer, a zero entry, then the info blocks.
+ * Unwinders that cannot use dl_iterate_phdr() rely on it to get through the
+ * signal trampoline.
+ */
+static abi_long do_ia64_getunwind(CPUState *cpu, abi_ulong buf,
+                                  abi_ulong buf_size)
+{
+    abi_ulong base = get_task_state(cpu)->info->vdso;
+    abi_ulong table = 0, pos, size;
+    Elf64_Ehdr *ehdr;
+    Elf64_Phdr *phdr;
+    uint64_t *src, *dst;
+    unsigned i, n = 0, phnum;
+    uint8_t *out;
+
+    if (!base) {
+        return -TARGET_ENOSYS;
+    }
+    ehdr = g2h(cpu, base);
+    phdr = g2h(cpu, base + ldq_le_p(&ehdr->e_phoff));
+    phnum = lduw_le_p(&ehdr->e_phnum);
+    for (i = 0; i < phnum; i++) {
+        if (ldl_le_p(&phdr[i].p_type) == PT_IA_64_UNWIND) {
+            /* The vdso loader has relocated p_vaddr already. */
+            table = ldq_le_p(&phdr[i].p_vaddr);
+            n = ldq_le_p(&phdr[i].p_memsz) / 24;
+            break;
+        }
+    }
+    if (!table) {
+        return -TARGET_ENOSYS;
+    }
+
+    /* Each info block is a header word followed by UNW_LENGTH words. */
+    src = g2h(cpu, table);
+    size = (n + 1) * 24;
+    for (i = 0; i < n; i++) {
+        uint64_t *info = g2h(cpu, base + ldq_le_p(&src[3 * i + 2]));
+        size += 8 + 8 * (uint32_t)ldq_le_p(info);
+    }
+
+    if (buf && buf_size >= size) {
+        out = lock_user(VERIFY_WRITE, buf, size, 0);
+        if (!out) {
+            return -TARGET_EFAULT;
+        }
+        dst = (uint64_t *)out;
+        pos = (n + 1) * 24;
+        for (i = 0; i < n; i++) {
+            uint64_t *info = g2h(cpu, base + ldq_le_p(&src[3 * i + 2]));
+            abi_ulong len = 8 + 8 * (uint32_t)ldq_le_p(info);
+
+            stq_le_p(&dst[3 * i + 0], base + ldq_le_p(&src[3 * i + 0]));
+            stq_le_p(&dst[3 * i + 1], base + ldq_le_p(&src[3 * i + 1]));
+            stq_le_p(&dst[3 * i + 2], pos);
+            memcpy(out + pos, info, len);
+            pos += len;
+        }
+        memset(&dst[3 * n], 0, 24);
+        unlock_user(out, buf, size);
+    }
+    return size;
+}
+#endif
+
+
 /* This is an internal helper for do_syscall so that it is easier
  * to have a single return point, so that actions, such as logging
  * of syscall results, can be performed.
@@ -11765,6 +11835,10 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
             }
         }
         return ret;
+#endif
+#if defined(TARGET_IA64) && defined(TARGET_NR_getunwind)
+    case TARGET_NR_getunwind:
+        return do_ia64_getunwind(cpu, arg1, arg2);
 #endif
 #ifdef TARGET_NR_getdents
     case TARGET_NR_getdents:

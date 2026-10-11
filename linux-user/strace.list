@@ -296,6 +296,9 @@
 #ifdef TARGET_NR_getdents
 { TARGET_NR_getdents, "getdents" , "%s(%d,%p,%u)", NULL, NULL },
 #endif
+#ifdef TARGET_NR_getunwind
+{ TARGET_NR_getunwind, "getunwind" , "%s(%p,%u)", NULL, NULL },
+#endif
 #ifdef TARGET_NR_getdents64
 { TARGET_NR_getdents64, "getdents64" , "%s(%d,%p,%u)", NULL, NULL },
 #endif
