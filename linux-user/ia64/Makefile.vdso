@@ -1,0 +1,12 @@
+include $(BUILD_DIR)/tests/tcg/ia64-linux-user/config-target.mak
+
+SUBDIR = $(SRC_PATH)/linux-user/ia64
+VPATH += $(SUBDIR)
+
+all: $(SUBDIR)/vdso.so
+
+$(SUBDIR)/vdso.so: vdso.S vdso.ld
+	$(CC) -o $@ -nostdlib -shared -Wl,-h,linux-gate.so.1 \
+	  -Wl,--build-id=sha1 -Wl,--hash-style=both \
+	  -Wl,-z,max-page-size=4096 \
+	  -Wl,-T,$(SUBDIR)/vdso.ld $<

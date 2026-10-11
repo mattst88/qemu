@@ -77,32 +77,6 @@ QEMU_BUILD_BUG_ON(offsetof(struct target_sigframe, sc) != 160);
 
 #define TARGET_IA64_STACK_ALIGN 16
 
-/*
- * The six trampoline bundles written into the trampoline page; see
- * linux-user/ia64/sigtramp.S for the assembly source and how to regenerate
- * this.  The bundles are stored little endian, matching the target.
- */
-static const uint8_t ia64_sigtramp_code[] = {
-    /* [MII] alloc r2 = ar.pfs, 0, 0, 3, 0 ; adds r16 = 16, r12 ;; */
-    0x02, 0x10, 0x0c, 0x00, 0x80, 0x05, 0x00, 0x81,
-    0x30, 0x00, 0x42, 0x00, 0x00, 0x00, 0x04, 0x00,
-    /* [MMI] ld8 out0 = [r16], 8 ;; ld8 out1 = [r16], 8 ;; */
-    0x0b, 0x00, 0x21, 0x20, 0x18, 0x14, 0x10, 0x42,
-    0x40, 0x30, 0x28, 0x00, 0x00, 0x00, 0x04, 0x00,
-    /* [MMI] ld8 out2 = [r16], 8 ;; ld8 r17 = [r16] ;; */
-    0x0b, 0x10, 0x21, 0x20, 0x18, 0x14, 0x10, 0x01,
-    0x40, 0x30, 0x20, 0x00, 0x00, 0x00, 0x04, 0x00,
-    /* [MMI] ld8 r18 = [r17], 8 ;; ld8 gp = [r17] ; mov b6 = r18 */
-    0x0a, 0x90, 0x20, 0x22, 0x18, 0x14, 0x10, 0x00,
-    0x44, 0x30, 0x20, 0xc0, 0x20, 0x09, 0x00, 0x07,
-    /* [MMB] nop ; nop ; br.call.sptk.many b0 = b6 */
-    0x18, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-    0x00, 0x02, 0x00, 0x00, 0x68, 0x00, 0x80, 0x10,
-    /* [MMI] mov r15 = 1181 ; nop ; break.i 0x100000 ;; */
-    0x09, 0x78, 0x74, 0x00, 0x09, 0x24, 0x00, 0x00,
-    0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
-};
-
 static void setup_sigcontext(struct target_sigcontext *sc, CPUIA64State *env,
                              target_sigset_t *set, abi_ulong flags,
                              uint64_t cfm, uint64_t bsp)
@@ -298,17 +272,4 @@ long do_rt_sigreturn(CPUArchState *env)
  badframe:
     force_sig(TARGET_SIGSEGV);
     return -QEMU_ESIGRETURN;
-}
-
-void setup_sigtramp(abi_ulong sigtramp_page)
-{
-    void *tramp = lock_user(VERIFY_WRITE, sigtramp_page,
-                            sizeof(ia64_sigtramp_code), 0);
-    assert(tramp != NULL);
-
-    /* Pre-assembled bundles: no byte swapping, the target is little endian. */
-    memcpy(tramp, ia64_sigtramp_code, sizeof(ia64_sigtramp_code));
-
-    default_rt_sigreturn = sigtramp_page;
-    unlock_user(tramp, sigtramp_page, sizeof(ia64_sigtramp_code));
 }

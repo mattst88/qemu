@@ -5,3 +5,8 @@ syscall_nr_generators += {
                                  '', 'TARGET_SYSCALL_OFFSET' ],
                     output: '@BASENAME@_nr.h')
 }
+
+vdso_inc = gen_vdso.process('vdso.so',
+                            extra_args: ['-r', '__kernel_sigtramp'])
+
+linux_user_ss.add(when: 'TARGET_IA64', if_true: vdso_inc)

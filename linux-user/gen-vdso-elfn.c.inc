@@ -307,6 +307,14 @@ static void elfN(process)(FILE *outf, void *buf, long len, bool need_bswap)
                 errors++;
                 break;
 
+            case PT_LOPROC + 0:
+                if (ehdr->e_machine == EM_IA_64) {
+                    /* DT_IA_64_PLT_RESERVE: an address */
+                    output_reloc(outf, buf, &target_dyn->d_un.d_val);
+                    break;
+                }
+                goto do_default;
+
             case PT_LOPROC + 3:
                 if (ehdr->e_machine == EM_PPC64) {
                     break;  /* DT_PPC64_OPT: integer bitmask */

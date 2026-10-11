@@ -16,10 +16,4 @@
 #define TARGET_MINSIGSTKSZ      131027
 #define TARGET_SIGSTKSZ         262144
 
-/*
- * The real kernel puts the trampoline in the gate page; a page of our own
- * serves the same purpose here.
- */
-#define TARGET_ARCH_HAS_SIGTRAMP_PAGE 1
-
 #endif /* IA64_TARGET_SIGNAL_H */
