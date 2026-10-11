@@ -24,6 +24,29 @@
 
 __thread abi_ulong ia64_clone_rbs_base;
 
+/* The reservation for the main thread's register backing store. */
+static abi_ulong ia64_rbs_start, ia64_rbs_end;
+
+/*
+ * The kernel's backing store is a VM_GROWSUP mapping that is only as big as
+ * what has been used, so that a program can map something right above it,
+ * typically a guard page, by passing the address as a hint.  Ours is mapped
+ * in full from the start.  Treat what the calling thread has above its
+ * AR.BSP as free for whoever asks for it by address.
+ */
+bool ia64_mmap_hint_is_free(abi_ulong start, abi_ulong len)
+{
+    CPUIA64State *env = cpu_env(thread_cpu);
+    abi_ulong top = MAX(env->ar_bsp, env->ar_bspstore);
+
+    if (top < ia64_rbs_start || top >= ia64_rbs_end) {
+        return false;
+    }
+    top = TARGET_PAGE_ALIGN(top);
+    return start >= top && start < ia64_rbs_end &&
+           len <= ia64_rbs_end - start;
+}
+
 /* Resume at the instruction following the one that faulted. */
 static void ia64_advance_slot(CPUIA64State *env)
 {
@@ -293,6 +316,8 @@ void init_main_thread(CPUState *cs, struct image_info *info)
         fprintf(stderr, "Unable to reserve the register backing store\n");
         exit(EXIT_FAILURE);
     }
+    ia64_rbs_start = rbs;
+    ia64_rbs_end = rbs + IA64_RBS_SIZE;
     env->ar_bsp = rbs;
     env->ar_bspstore = rbs;
 }

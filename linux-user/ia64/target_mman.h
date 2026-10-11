@@ -23,6 +23,10 @@
 /* arch/ia64/include/uapi/asm/mman.h: register stack-like segment */
 #define TARGET_MAP_GROWSUP      0x0200
 
+/* A hint at unused register backing store is honoured: see cpu_loop.c. */
+#define TARGET_MMAP_HINT_IS_FREE ia64_mmap_hint_is_free
+bool ia64_mmap_hint_is_free(uint64_t start, uint64_t len);
+
 #include "../generic/target_mman.h"
 
 #endif

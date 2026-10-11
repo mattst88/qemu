@@ -940,6 +940,12 @@ static abi_long target_mmap__locked(abi_ulong start, abi_ulong len,
                 return -1;
             }
             flags = (flags & ~MAP_FIXED_NOREPLACE) | MAP_FIXED;
+#ifdef TARGET_MMAP_HINT_IS_FREE
+        } else if (!(flags & MAP_FIXED) && start &&
+                   !(start & ~TARGET_PAGE_MASK) &&
+                   TARGET_MMAP_HINT_IS_FREE(start, len)) {
+            flags |= MAP_FIXED;
+#endif
         } else if (!(flags & MAP_FIXED)) {
             abi_ulong real_start = start & -host_page_size;
             off_t host_offset = offset & -host_page_size;
