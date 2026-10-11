@@ -1778,7 +1778,7 @@ uint64_t ia64_gdb_read_bsp(const CPUIA64State *env);
 uint64_t ia64_user_get_pr(CPUIA64State *env);
 void ia64_user_set_pr(CPUIA64State *env, uint64_t value);
 void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp);
-void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm, uint64_t bsp);
+void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm);
 void ia64_user_set_rbs(CPUIA64State *env, uint64_t base);
 #endif /* CONFIG_USER_ONLY */
 

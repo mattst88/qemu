@@ -2815,14 +2815,15 @@ void ia64_user_set_rbs(CPUIA64State *env, uint64_t base)
 }
 
 /*
- * Signal delivery: push the interrupted frame into the dirty partition and
- * spill everything, as the kernel does before it builds the sigcontext.
+ * Signal delivery: push the interrupted frame into the dirty partition, as
+ * the kernel's interruption entry does.  Nothing is written to the backing
+ * store, which may be the very thing that faulted; the trampoline moves the
+ * dirty partition to the alternate signal stack if there is one.
  */
 void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp)
 {
     *cfm = ia64_rse_current_cfm(env);
     ia64_rse_cover(env);
-    ia64_rse_flush(env, 0);
     *bsp = env->ar_bsp;
     /*
      * An asynchronous signal can arrive in the middle of an instruction
@@ -2832,17 +2833,19 @@ void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp)
 }
 
 /*
- * sigreturn: the handler's frames are dead.  The caller has already placed
- * the sigcontext's RNAT in AR.RNAT; adopt it for the collection containing
- * "bsp" and refill the interrupted frame from the backing store.
+ * sigreturn: the frame that made the system call is dead, and the kernel
+ * leaves with an rfi whose CR.IFS is the sigcontext's frame marker.  That
+ * frame is the "sof" registers below AR.BSP; it is up to the trampoline to
+ * have put AR.BSP and the dirty partition where they belong.
  */
-void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm, uint64_t bsp)
+void ia64_user_signal_return(CPUIA64State *env, uint64_t cfm)
 {
-    uint64_t rnat = env->ar_rnat;
-
-    ia64_rse_cover(env);
-    env->rse.rse_bol = 0;
-    ia64_user_rebase_backing_store(env, bsp & ~7ULL, rnat, 0);
+    ia64_rse_sync_frame_out(env);
+    env->rse.rse_invalid += env->cfm_sof;
+    env->cfm_sof = 0;
+    env->cfm_sol = 0;
+    env->cfm_sor = 0;
+    ia64_rse_reset_rotations(env);
     ia64_rse_return_to_frame(env, cfm & IA64_IFS_IFM_MASK,
                              cfm & IA64_CFM_SOF_MASK);
     /* As after rfi: group boundaries are not part of the saved context. */

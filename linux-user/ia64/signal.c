@@ -79,7 +79,7 @@ QEMU_BUILD_BUG_ON(offsetof(struct target_sigframe, sc) != 160);
 
 static void setup_sigcontext(struct target_sigcontext *sc, CPUIA64State *env,
                              target_sigset_t *set, abi_ulong flags,
-                             uint64_t cfm, uint64_t bsp)
+                             uint64_t cfm, uint64_t bsp, abi_ulong rbs_base)
 {
     uint64_t low, high;
     int i;
@@ -121,11 +121,8 @@ static void setup_sigcontext(struct target_sigcontext *sc, CPUIA64State *env,
         __put_user(high, &sc->sc_fr[i].bits[1]);
     }
 
-    /*
-     * The dirty partition was flushed to the original backing store, so the
-     * handler keeps using it and needs no loadrs on return.
-     */
-    __put_user(0, &sc->sc_rbs_base);
+    /* The trampoline switches to rbs_base, if any, and sets sc_loadrs. */
+    __put_user(rbs_base, &sc->sc_rbs_base);
     __put_user(0, &sc->sc_loadrs);
     __put_user(env->ar_csd, &sc->sc_ar25);
     __put_user(env->ar_ssd, &sc->sc_ar26);
@@ -140,7 +137,7 @@ static void setup_sigcontext(struct target_sigcontext *sc, CPUIA64State *env,
 
 static void restore_sigcontext(CPUIA64State *env, struct target_sigcontext *sc)
 {
-    uint64_t value, low, high, cfm, bsp;
+    uint64_t value, low, high, cfm;
     int i;
 
     __get_user(value, &sc->sc_ip);
@@ -152,7 +149,6 @@ static void restore_sigcontext(CPUIA64State *env, struct target_sigcontext *sc)
     env->psr = (env->psr & ~IA64_PSR_UM_MASK) | (value & IA64_PSR_UM_MASK);
 
     __get_user(env->ar_rsc, &sc->sc_ar_rsc);
-    __get_user(env->ar_rnat, &sc->sc_ar_rnat);
     __get_user(env->ar_ccv, &sc->sc_ar_ccv);
     __get_user(env->ar_unat, &sc->sc_ar_unat);
     __get_user(env->ar_fpsr, &sc->sc_ar_fpsr);
@@ -182,12 +178,12 @@ static void restore_sigcontext(CPUIA64State *env, struct target_sigcontext *sc)
 
     /*
      * Re-establish the interrupted register frame last: the mandatory RSE
-     * loads it triggers refill the stacked registers, and they consume the
-     * AR.RNAT and AR.BSP restored above.
+     * loads it may trigger refill the stacked registers.  As in the kernel,
+     * the frame is found below the current AR.BSP; sc_ar_bsp and sc_ar_rnat
+     * are for the trampoline, which has acted on them by now.
      */
     __get_user(cfm, &sc->sc_cfm);
-    __get_user(bsp, &sc->sc_ar_bsp);
-    ia64_user_signal_return(env, cfm, bsp);
+    ia64_user_signal_return(env, cfm);
 }
 
 void setup_rt_frame(int sig, struct target_sigaction *ka,
@@ -195,10 +191,20 @@ void setup_rt_frame(int sig, struct target_sigaction *ka,
                     target_sigset_t *set, CPUArchState *env)
 {
     struct target_sigframe *frame;
-    abi_ulong frame_addr, sp, flags;
+    abi_ulong frame_addr, sp, flags, rbs_base = 0;
+    TaskState *ts = get_task_state(thread_cpu);
     uint64_t cfm, bsp;
 
     sp = target_sigsp(get_sp_from_cpustate(env), ka);
+    /*
+     * When moving to the alternate signal stack, the register stack goes
+     * there as well, growing up from its base, unless it already is there.
+     */
+    if (sp != get_sp_from_cpustate(env) &&
+        env->ar_bspstore - ts->sigaltstack_used.ss_sp >=
+        ts->sigaltstack_used.ss_size) {
+        rbs_base = QEMU_ALIGN_UP(ts->sigaltstack_used.ss_sp, 8);
+    }
     frame_addr = (sp - sizeof(*frame)) & -TARGET_IA64_STACK_ALIGN;
 
     trace_user_setup_rt_frame(env, frame_addr);
@@ -226,7 +232,7 @@ void setup_rt_frame(int sig, struct target_sigaction *ka,
     flags = on_sig_stack(frame_addr + offsetof(struct target_sigframe, sc)) ?
             TARGET_IA64_SC_FLAG_ONSTACK : 0;
     target_save_altstack(&frame->sc.sc_stack, env);
-    setup_sigcontext(&frame->sc, env, set, flags, cfm, bsp);
+    setup_sigcontext(&frame->sc, env, set, flags, cfm, bsp, rbs_base);
 
     unlock_user_struct(frame, frame_addr, 1);
 
