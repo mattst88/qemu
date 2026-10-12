@@ -369,7 +369,20 @@ void ia64_mmu_fc(CPUIA64State *env, uint64_t addr,
     IA64Exception excp;
     uint64_t pa;
 
+#ifdef CONFIG_USER_ONLY
+    /*
+     * User mode has no guest translations to consult, and a guest virtual
+     * address stands in for the physical one.  Only an address with no
+     * mapping at all faults; fc needs no access rights to the line.  Writes
+     * to translated code are caught through page protection, so there is
+     * nothing more to do for fc.i.
+     */
+    excp = (page_get_flags(addr) & PAGE_VALID) ? IA64_EXCP_NONE
+                                                : IA64_EXCP_ALT_DTLB;
+    pa = addr;
+#else
     excp = ia64_translate_nonaccess(env, addr, IA64_NON_ACCESS_FC, &pa);
+#endif
     if (excp != IA64_EXCP_NONE) {
         ia64_raise_nonaccess_exception(env, addr, IA64_NON_ACCESS_FC, excp);
     }
