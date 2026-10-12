@@ -8,6 +8,7 @@
 #include "loader.h"
 #include "target_elf.h"
 #include "target/ia64/arch/arch.h"
+#include "target/ia64/fpreg.h"
 
 
 const char *get_elf_cpu_model(uint32_t eflags)
@@ -53,4 +54,15 @@ void elf_core_copy_regs(target_elf_gregset_t *r, const CPUIA64State *cenv)
     regs[54] = tswapal(env->ar_ec);
     regs[55] = tswapal(env->ar_csd);
     regs[56] = tswapal(env->ar_ssd);
+}
+
+void elf_core_copy_fpregs(target_elf_fpregset_t *r, const CPUIA64State *env)
+{
+    for (int i = 0; i < 128; i++) {
+        uint64_t low, high;
+
+        ia64_fpreg_to_spill(env, i, &low, &high);
+        r->fr[i][0] = tswapal(low);
+        r->fr[i][1] = tswapal(high);
+    }
 }

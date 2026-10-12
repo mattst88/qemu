@@ -2112,6 +2112,12 @@ int load_elf_binary(struct linux_binprm *bprm, struct image_info *info)
  *     env - copy registers from here
  *
  * Example for ARM target is provided in this file.
+ *
+ * To have the floating-point registers dumped as well, define
+ * HAVE_ELF_CORE_DUMP_FPREGSET and target_elf_fpregset_t, and implement
+ *
+ * void elf_core_copy_fpregs(target_elf_fpregset_t *regs,
+ *                           const CPUArchState *env);
  */
 
 struct target_elf_siginfo {
@@ -2302,10 +2308,23 @@ static void fill_prstatus_note(void *data, CPUState *cpu, int signr)
         .pr_sid = getsid(0),
     };
 
+#ifdef HAVE_ELF_CORE_DUMP_FPREGSET
+    prstatus.pr_fpvalid = 1;
+#endif
     elf_core_copy_regs(&prstatus.pr_reg, cpu_env(cpu));
     bswap_prstatus(&prstatus);
     memcpy(data, &prstatus, sizeof(prstatus));
 }
+
+#ifdef HAVE_ELF_CORE_DUMP_FPREGSET
+static void fill_fpregset_note(void *data, CPUState *cpu)
+{
+    target_elf_fpregset_t fpregs = { };
+
+    elf_core_copy_fpregs(&fpregs, cpu_env(cpu));
+    memcpy(data, &fpregs, sizeof(fpregs));
+}
+#endif
 
 static void fill_prpsinfo_note(void *data, const TaskState *ts)
 {
@@ -2558,6 +2577,7 @@ static int wmr_write_region(void *opaque, vaddr start,
  *     | - NT_PRSINFO         |
  *     | - NT_AUXV            |
  *     | - NT_FILE            |
+ *     | - NT_FPREGSET        |
  *     +----------------------+ <-- aligned to target page
  *     | Process memory dump  |
  *     :                      :
@@ -2570,10 +2590,12 @@ static int wmr_write_region(void *opaque, vaddr start,
  * NT_PRSINFO  -> struct elf_prpsinfo
  * NT_AUXV is array of { type, value } pairs (see fill_auxv_note()).
  * NT_FILE lists the file mappings (see fill_file_note()).
+ * NT_FPREGSET -> elf_fpregset_t (per thread, after its NT_PRSTATUS)
  *
  * Format follows System V format as close as possible.  Current
  * version limitations are as follows:
- *     - no floating point registers are dumped
+ *     - floating point registers are only dumped for targets that
+ *       define HAVE_ELF_CORE_DUMP_FPREGSET
  *
  * Function returns 0 in case of success, negative errno otherwise.
  *
@@ -2640,6 +2662,9 @@ static int elf_core_dump(int signr, const CPUArchState *env)
     if (fn.maps->len) {
         offset += size_note("CORE", file_note_size(&fn));
     }
+#ifdef HAVE_ELF_CORE_DUMP_FPREGSET
+    offset += size_note("CORE", sizeof(target_elf_fpregset_t)) * cpus;
+#endif
     note_size = offset - note_offset;
     data_offset = TARGET_PAGE_ALIGN(offset);
 
@@ -2701,6 +2726,11 @@ static int elf_core_dump(int signr, const CPUArchState *env)
             dptr = fill_note(&hptr, NT_PRSTATUS, "CORE",
                              sizeof(struct target_elf_prstatus));
             fill_prstatus_note(dptr, cpu_iter, cpu_iter == cpu ? signr : 0);
+#ifdef HAVE_ELF_CORE_DUMP_FPREGSET
+            dptr = fill_note(&hptr, NT_FPREGSET, "CORE",
+                             sizeof(target_elf_fpregset_t));
+            fill_fpregset_note(dptr, cpu_iter);
+#endif
         }
 
         if (dump_write(fd, header, data_offset) < 0) {

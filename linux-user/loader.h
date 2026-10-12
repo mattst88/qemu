@@ -109,6 +109,8 @@ bool init_guest_commpage(void);
 
 struct target_elf_gregset_t;
 void elf_core_copy_regs(struct target_elf_gregset_t *, const CPUArchState *);
+struct target_elf_fpregset_t;
+void elf_core_copy_fpregs(struct target_elf_fpregset_t *, const CPUArchState *);
 
 typedef struct {
     const uint8_t *image;

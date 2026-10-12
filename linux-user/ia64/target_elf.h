@@ -19,6 +19,12 @@ typedef struct target_elf_gregset_t {
     abi_ulong regs[TARGET_ELF_NGREG];
 } target_elf_gregset_t;
 
+#define HAVE_ELF_CORE_DUMP_FPREGSET 1
+
+typedef struct target_elf_fpregset_t {
+    abi_ulong fr[128][2];
+} target_elf_fpregset_t;
+
 /*
  * Like the kernel, point AT_SYSINFO at the syscall stub of the gate DSO.
  * glibc makes all of its system calls through it.
