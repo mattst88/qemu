@@ -11,6 +11,14 @@
 
 #define VDSO_HEADER             "vdso.c.inc"
 
+#define HAVE_ELF_CORE_DUMP      1
+
+/* See linux kernel: arch/ia64/include/asm/elf.h. */
+#define TARGET_ELF_NGREG        128
+typedef struct target_elf_gregset_t {
+    abi_ulong regs[TARGET_ELF_NGREG];
+} target_elf_gregset_t;
+
 /*
  * Like the kernel, point AT_SYSINFO at the syscall stub of the gate DSO.
  * glibc makes all of its system calls through it.

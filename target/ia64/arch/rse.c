@@ -2733,30 +2733,34 @@ uint64_t ia64_gdb_read_bsp(const CPUIA64State *env)
  * always has a complete backing store.  Reproduce that view for the gdb
  * stub, but leave the RSE partitions alone so execution resumes
  * unchanged, and give up rather than fault if a store cannot proceed.
+ *
+ * Returns the NaT collection for the end of the backing store, which is
+ * what the kernel reports as AR.RNAT along with ia64_gdb_read_bsp().
  */
-void ia64_gdb_flush_rse(CPUIA64State *env)
+uint64_t ia64_gdb_flush_rse(CPUIA64State *env)
 {
     int mmu_idx = ia64_rse_mmu_index(env);
     uint64_t addr;
-    uint64_t nat = 0;
+    uint64_t nat;
     uint32_t i;
 
     ia64_rse_sync_frame_out(env);
 
     while (env->rse.rse_dirty + env->rse.rse_dirty_nat > 0) {
         if (ia64_exec_store_would_fault(env, env->ar_bspstore, 8, mmu_idx)) {
-            return;
+            return env->ar_rnat;
         }
         ia64_rse_store_one(env, 0);
     }
 
     /* Mirror the current frame where a cover would have placed it. */
     addr = env->ar_bsp;
+    nat = env->ar_rnat & MAKE_64BIT_MASK(0, ia64_rse_collect_bit(addr));
     for (i = 0; i < env->cfm_sof; i++) {
         uint32_t p = ia64_rse_wrap_phys((int32_t)env->rse.rse_bol + i);
 
         if (ia64_exec_store_would_fault(env, addr, 8, mmu_idx)) {
-            return;
+            return nat;
         }
         if (ia64_rse_collect_bit(addr) == 63) {
             ia64_rse_write_u64(env, addr, nat, 0);
@@ -2771,6 +2775,7 @@ void ia64_gdb_flush_rse(CPUIA64State *env)
         ia64_rse_write_u64(env, addr, env->rse.rse_pgr[p], 0);
         addr += 8;
     }
+    return nat;
 }
 
 #ifdef CONFIG_USER_ONLY

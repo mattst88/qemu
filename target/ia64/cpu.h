@@ -1763,7 +1763,7 @@ static inline uint64_t ia64_va_canonicalize(const CPUIA64State *env,
  * predicates have to be packed into the architected bitmap and the register
  * stack has to be spilled to the backing store before a handler runs.
  */
-void ia64_gdb_flush_rse(CPUIA64State *env);
+uint64_t ia64_gdb_flush_rse(CPUIA64State *env);
 
 /*
  * GDB addresses an IA-64 instruction as bundle | slot.  Bit 2 is unused in
