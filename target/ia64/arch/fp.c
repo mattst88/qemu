@@ -1658,6 +1658,10 @@ static IA64FPSWAFormat ia64_fpswa_format(CPUIA64State *env, uint32_t reg)
     ia64_fpreg_to_spill(env, reg, &value.mant, &high);
     value.sign = (high >> 17) & 1;
     value.exp = high & IA64_FP_WRE_EXP_MASK;
+    if (value.exp == 0 && value.mant != 0) {
+        /* A double-extended denormal has the exponent 0xc001. */
+        value.exp = 0xc001;
+    }
     value.unnormal = value.mant != 0 &&
                      !(value.mant & IA64_FP_SIGNIFICAND_INTEGER_BIT);
     if (value.unnormal) {
@@ -2585,6 +2589,41 @@ static void ia64_fpswa_prepare_sqrt(CPUIA64State *env, uint32_t r1,
     ia64_fpswa_cache_result(env, &raw, sf, val.unnormal);
 }
 
+#ifdef CONFIG_USER_ONLY
+/*
+ * A software assist fault never reaches a user program: the kernel has
+ * the FPSWA firmware finish the instruction.  Deliver the result worked
+ * out above and leave its flags for ia64_fp_end(), which sets them in
+ * ar.fpsr and raises whichever of them the program has unmasked.
+ */
+static void ia64_fpswa_complete(CPUIA64State *env, uint32_t r1, uint32_t p2)
+{
+    uint64_t flags = env->fp.fpswa_flags;
+    int soft = 0;
+
+    env->fp.fpswa_pending = false;
+    if (flags & (1U << 1)) {
+        soft |= float_flag_input_denormal_used;
+    }
+    if (flags & (1U << 3)) {
+        soft |= float_flag_overflow;
+    }
+    if (flags & (1U << 4)) {
+        soft |= float_flag_underflow;
+    }
+    if (flags & (1U << 5)) {
+        soft |= float_flag_inexact;
+    }
+    float_raise(soft, &env->fp.fp_status);
+    env->fp.transaction.trap_fpa = env->fp.fpswa_fpa;
+
+    ia64_fr_write_ext(env, r1, (env->fp.fpswa_result_high >> 17) & 1,
+                      env->fp.fpswa_result_high & 0x1ffff,
+                      env->fp.fpswa_result_low);
+    ia64_pr_write(env, p2, false);
+}
+#endif
+
 static int ia64_fp_approx_soft_flags(int soft)
 {
     /* Approximation instructions do not report O, U, or I. */
@@ -2625,7 +2664,12 @@ static void ia64_do_frcpa(CPUIA64State *env, uint32_t r1, uint32_t p2,
     ia64_normalize_fp_register_format(&den_fmt);
     if (ia64_frcpa_limits_swa_fault(&num_fmt, &den_fmt)) {
         ia64_fpswa_prepare_divide(env, r1, p2, r2, r3, sf);
+#ifdef CONFIG_USER_ONLY
+        ia64_fpswa_complete(env, r1, p2);
+        return;
+#else
         ia64_raise_fp_fault(env, IA64_FP_ISR_SWA);
+#endif
     }
     ia64_fp_note_unnormal_operand(
         env, sf, ia64_frcpa_uses_unnormal_operand(&num_raw, &den_raw));
@@ -4271,7 +4315,12 @@ static void ia64_do_frsqrta(CPUIA64State *env, uint32_t r1, uint32_t p2,
     ia64_normalize_fp_register_format(&fmt);
     if (ia64_frsqrta_limits_swa_fault(&fmt)) {
         ia64_fpswa_prepare_sqrt(env, r1, p2, r3, sf);
+#ifdef CONFIG_USER_ONLY
+        ia64_fpswa_complete(env, r1, p2);
+        return;
+#else
         ia64_raise_fp_fault(env, IA64_FP_ISR_SWA);
+#endif
     }
     ia64_fp_note_unnormal_operand(
         env, sf, ia64_frsqrta_uses_unnormal_operand(&raw));
