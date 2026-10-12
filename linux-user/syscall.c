@@ -10963,9 +10963,10 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
              * For now, just tell the guest the call succeeded but don't actually
              * limit anything.
              */
-            if (resource != RLIMIT_AS &&
-                resource != RLIMIT_DATA &&
-                resource != RLIMIT_STACK) {
+            if (resource == RLIMIT_AS) {
+                return -host_to_target_errno(-guest_set_rlimit_as(&rlim));
+            } else if (resource != RLIMIT_DATA &&
+                       resource != RLIMIT_STACK) {
                 return get_errno(setrlimit(resource, &rlim));
             } else {
                 return 0;
@@ -10979,7 +10980,12 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
             struct target_rlimit *target_rlim;
             struct rlimit rlim;
 
-            ret = get_errno(getrlimit(resource, &rlim));
+            if (resource == RLIMIT_AS) {
+                guest_get_rlimit_as(&rlim);
+                ret = 0;
+            } else {
+                ret = get_errno(getrlimit(resource, &rlim));
+            }
             if (!is_error(ret)) {
                 if (!lock_user_struct(VERIFY_WRITE, target_rlim, arg2, 0))
                     return -TARGET_EFAULT;
@@ -12381,7 +12387,12 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
     {
 	struct rlimit rlim;
 	int resource = target_to_host_resource(arg1);
-	ret = get_errno(getrlimit(resource, &rlim));
+        if (resource == RLIMIT_AS) {
+            guest_get_rlimit_as(&rlim);
+            ret = 0;
+        } else {
+            ret = get_errno(getrlimit(resource, &rlim));
+        }
 	if (!is_error(ret)) {
 	    struct target_rlimit *target_rlim;
             if (!lock_user_struct(VERIFY_WRITE, target_rlim, arg2, 0))
@@ -14023,6 +14034,34 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         struct target_rlimit64 *target_rnew, *target_rold;
         struct host_rlimit64 rnew, rold, *rnewp = 0;
         int resource = target_to_host_resource(arg2);
+
+        if (resource == RLIMIT_AS && (arg1 == 0 || arg1 == getpid())) {
+            /* The guest's own address space limit is kept here. */
+            struct rlimit as_old, as_new;
+
+            guest_get_rlimit_as(&as_old);
+            if (arg3) {
+                if (!lock_user_struct(VERIFY_READ, target_rnew, arg3, 1)) {
+                    return -TARGET_EFAULT;
+                }
+                __get_user(as_new.rlim_cur, &target_rnew->rlim_cur);
+                __get_user(as_new.rlim_max, &target_rnew->rlim_max);
+                unlock_user_struct(target_rnew, arg3, 0);
+                ret = -host_to_target_errno(-guest_set_rlimit_as(&as_new));
+                if (is_error(ret)) {
+                    return ret;
+                }
+            }
+            if (arg4) {
+                if (!lock_user_struct(VERIFY_WRITE, target_rold, arg4, 0)) {
+                    return -TARGET_EFAULT;
+                }
+                __put_user(as_old.rlim_cur, &target_rold->rlim_cur);
+                __put_user(as_old.rlim_max, &target_rold->rlim_max);
+                unlock_user_struct(target_rold, arg4, 1);
+            }
+            return 0;
+        }
 
         if (arg3 && (resource != RLIMIT_AS &&
                      resource != RLIMIT_DATA &&

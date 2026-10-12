@@ -19,6 +19,7 @@
  */
 #include "qemu/osdep.h"
 #include <sys/shm.h>
+#include <sys/resource.h>
 #include "trace.h"
 #include "exec/log.h"
 #include "exec/page-protection.h"
@@ -976,6 +977,83 @@ static abi_long target_mmap__locked(abi_ulong start, abi_ulong len,
     }
 }
 
+static struct rlimit guest_rlimit_as;
+static bool guest_rlimit_as_valid;
+
+void guest_get_rlimit_as(struct rlimit *rlim)
+{
+    mmap_lock();
+    if (!guest_rlimit_as_valid) {
+        if (getrlimit(RLIMIT_AS, &guest_rlimit_as) < 0) {
+            guest_rlimit_as.rlim_cur = RLIM_INFINITY;
+            guest_rlimit_as.rlim_max = RLIM_INFINITY;
+        }
+        guest_rlimit_as_valid = true;
+    }
+    *rlim = guest_rlimit_as;
+    mmap_unlock();
+}
+
+/* Returns 0 or a negative host errno. */
+int guest_set_rlimit_as(const struct rlimit *rlim)
+{
+    struct rlimit old;
+    int ret = 0;
+
+    if (rlim->rlim_cur > rlim->rlim_max) {
+        return -EINVAL;
+    }
+    mmap_lock();
+    guest_get_rlimit_as(&old);
+    if (rlim->rlim_max > old.rlim_max) {
+        ret = -EPERM;
+    } else {
+        guest_rlimit_as = *rlim;
+    }
+    mmap_unlock();
+    return ret;
+}
+
+struct rlimit_as_walk {
+    vaddr start;
+    vaddr end;
+    uint64_t total;
+    uint64_t replaced;
+};
+
+static int rlimit_as_walk_fn(void *opaque, vaddr start, vaddr end, int prot)
+{
+    struct rlimit_as_walk *w = opaque;
+
+    w->total += end - start;
+    if (start < w->end && end > w->start) {
+        w->replaced += MIN(end, w->end) - MAX(start, w->start);
+    }
+    return 0;
+}
+
+/*
+ * Would LEN more bytes of mappings take the guest over its RLIMIT_AS?
+ * With REPLACE, the new mapping is put at START over whatever is there,
+ * and what it replaces does not count twice.
+ */
+static bool rlimit_as_exceeded(abi_ulong start, abi_ulong len, bool replace)
+{
+    struct rlimit_as_walk w = { 0 };
+    struct rlimit rlim;
+
+    guest_get_rlimit_as(&rlim);
+    if (rlim.rlim_cur == RLIM_INFINITY) {
+        return false;
+    }
+    if (replace) {
+        w.start = start;
+        w.end = (vaddr)start + len;
+    }
+    walk_memory_regions(&w, rlimit_as_walk_fn);
+    return w.total - w.replaced + len > rlim.rlim_cur;
+}
+
 /* NOTE: all the constants are the HOST ones */
 abi_long target_mmap(abi_ulong start, abi_ulong len, int target_prot,
                      int flags, int fd, off_t offset)
@@ -1005,6 +1083,10 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int target_prot,
 
     if (offset & ~TARGET_PAGE_MASK) {
         errno = EINVAL;
+        return -1;
+    }
+    if (rlimit_as_exceeded(start, len, flags & MAP_FIXED)) {
+        errno = ENOMEM;
         return -1;
     }
     if (flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) {
@@ -1135,6 +1217,12 @@ abi_long target_mremap(abi_ulong old_addr, abi_ulong old_size,
         ((flags & MREMAP_MAYMOVE) == 0 &&
          !guest_range_valid_untagged(old_addr, new_size))) {
         errno = EINVAL;
+        return -1;
+    }
+
+    if (new_size > old_size &&
+        rlimit_as_exceeded(0, new_size - old_size, false)) {
+        errno = ENOMEM;
         return -1;
     }
 
@@ -1445,6 +1533,9 @@ abi_ulong target_shmat(CPUArchState *cpu_env, int shmid,
 
     if (!guest_range_valid_untagged(shmaddr, m_len)) {
         return -TARGET_EINVAL;
+    }
+    if (rlimit_as_exceeded(shmaddr, t_len, shmflg & SHM_REMAP)) {
+        return -TARGET_ENOMEM;
     }
 
     WITH_MMAP_LOCK_GUARD() {

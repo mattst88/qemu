@@ -18,6 +18,7 @@
 #ifndef LINUX_USER_USER_MMAP_H
 #define LINUX_USER_USER_MMAP_H
 
+#include <sys/resource.h>
 #include "user/mmap.h"
 
 /*
@@ -42,6 +43,13 @@ extern abi_ulong task_unmapped_base;
 extern abi_ulong elf_et_dyn_base;
 
 abi_long target_madvise(abi_ulong start, abi_ulong len_in, int advice);
+
+/*
+ * The guest's RLIMIT_AS.  The host cannot enforce it, because it would
+ * count QEMU's own memory, so the mapping calls check it themselves.
+ */
+void guest_get_rlimit_as(struct rlimit *rlim);
+int guest_set_rlimit_as(const struct rlimit *rlim);
 
 abi_ulong target_shmat(CPUArchState *cpu_env, int shmid,
                        abi_ulong shmaddr, int shmflg);
