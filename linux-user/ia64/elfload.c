@@ -17,9 +17,10 @@ const char *get_elf_cpu_model(uint32_t eflags)
 }
 
 /*
- * See linux kernel: arch/ia64/kernel/process.c, do_copy_task_regs().
- * As there, the whole register stack is written to the backing store, and
- * ar.bsp and ar.rnat are those of its end, past the current frame.
+ * See linux kernel: arch/ia64/kernel/ptrace.c, access_elf_reg(), which is
+ * what fills the cores it writes.  As there, the whole register stack is
+ * written to the backing store, ar.bsp and ar.rnat are those of its end,
+ * past the current frame, and the slot number is in psr.ri, not in the IP.
  */
 void elf_core_copy_regs(target_elf_gregset_t *r, const CPUIA64State *cenv)
 {
@@ -38,10 +39,11 @@ void elf_core_copy_regs(target_elf_gregset_t *r, const CPUIA64State *cenv)
     for (int i = 0; i < 8; i++) {
         regs[34 + i] = tswapal(env->br[i]);
     }
-    regs[42] = tswapal(env->ip |
-                       ((env->psr & IA64_PSR_RI_MASK) >> IA64_PSR_RI_SHIFT));
+    regs[42] = tswapal(env->ip);
     regs[43] = tswapal(ia64_rse_current_cfm(env));
-    regs[44] = tswapal(env->psr & IA64_PSR_UM_MASK);
+    regs[44] = tswapal(env->psr & (IA64_PSR_UM_MASK | IA64_PSR_DB |
+                                   IA64_PSR_IS | IA64_PSR_ID | IA64_PSR_DD |
+                                   IA64_PSR_RI_MASK));
     regs[45] = tswapal(env->ar_rsc);
     regs[46] = tswapal(ia64_gdb_read_bsp(env));
     regs[47] = tswapal(env->ar_bspstore);
