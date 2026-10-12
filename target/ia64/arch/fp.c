@@ -1912,7 +1912,13 @@ static bool ia64_fp_deliver_raw(CPUIA64State *env, uint32_t r1,
                 result_exp = min_exp;
             } else {
                 result_mant = (uint64_t)rounded << precision_shift;
-                result_exp = result_mant == 0 ? 0 : min_exp;
+                /*
+                 * A denormal in the double-extended range is encoded
+                 * with a zero exponent; one in a narrower range keeps
+                 * the minimum exponent and an unnormalized significand.
+                 */
+                result_exp = result_mant == 0 || min_exp == 0x0c001 ?
+                             0 : min_exp;
             }
             if (inexact) {
                 soft = float_flag_underflow | float_flag_inexact;
