@@ -8355,13 +8355,29 @@ int host_to_target_waitstatus(int status)
 static int open_self_cmdline(CPUArchState *cpu_env, int fd)
 {
     CPUState *cpu = env_cpu(cpu_env);
-    struct linux_binprm *bprm = get_task_state(cpu)->bprm;
+    TaskState *ts = get_task_state(cpu);
+    struct linux_binprm *bprm = ts->bprm;
+    abi_ulong start = ts->info->arg_strings;
+    abi_ulong len = ts->info->env_strings - start;
+    void *args;
     int i;
 
-    for (i = 0; i < bprm->argc; i++) {
-        size_t len = strlen(bprm->argv[i]) + 1;
+    /*
+     * The kernel reads the argument strings out of the process, so the
+     * file shows what the program has since made of them.
+     */
+    args = len ? lock_user(VERIFY_READ, start, len, 1) : NULL;
+    if (args) {
+        bool ok = write(fd, args, len) == len;
 
-        if (write(fd, bprm->argv[i], len) != len) {
+        unlock_user(args, start, 0);
+        return ok ? 0 : -1;
+    }
+
+    for (i = 0; i < bprm->argc; i++) {
+        size_t arglen = strlen(bprm->argv[i]) + 1;
+
+        if (write(fd, bprm->argv[i], arglen) != arglen) {
             return -1;
         }
     }
