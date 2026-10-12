@@ -1731,6 +1731,16 @@ static bool ia64_alignment_fault(CPUIA64State *env, uint64_t va,
     if (naturally_aligned) {
         return false;
     }
+#ifdef CONFIG_USER_ONLY
+    /*
+     * The kernel emulates an unaligned load or store, so the program
+     * sees only the ones it cannot emulate, the semaphore instructions,
+     * unless it asked for SIGBUS with prctl(PR_SET_UNALIGN).
+     */
+    if (!env_cpu(env)->prctl_unalign_sigbus) {
+        return alignment_class == IA64_ALIGNMENT_NATURAL_REQUIRED;
+    }
+#endif
     icc = ia64_env_cpu_class(env);
 
     if (!naturally_aligned &&
