@@ -114,6 +114,7 @@ static void ia64_break_signal(CPUIA64State *env)
     uint64_t imm = env->exception_state.fault_imm;
     int sig = TARGET_SIGILL;
     int code = TARGET_ILL_ILLOPC;
+    target_siginfo_t info = {};
 
     switch (imm) {
     case 0:                             /* __builtin_abort() */
@@ -164,7 +165,14 @@ static void ia64_break_signal(CPUIA64State *env)
         break;
     }
 
-    force_sig_fault(sig, code, env->exception_state.fault_ip | env->exception_state.fault_slot);
+    /* A break reports its immediate and no interruption status. */
+    info.si_signo = sig;
+    info.si_errno = 0;
+    info.si_code = code;
+    info._sifields._sigfault._addr =
+        env->exception_state.fault_ip | env->exception_state.fault_slot;
+    info._sifields._sigfault._imm = imm;
+    queue_signal(env, sig, QEMU_SI_FAULT, &info);
 }
 
 static void ia64_do_syscall(CPUIA64State *env)

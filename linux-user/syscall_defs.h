@@ -614,6 +614,11 @@ typedef struct target_siginfo {
         /* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
         struct {
             abi_ulong _addr; /* faulting insn/memory ref. */
+#ifdef TARGET_IA64
+            abi_int _imm;    /* immediate of a break instruction */
+            abi_uint _flags; /* TARGET_ISR_VALID */
+            abi_ulong _isr;  /* interruption status register */
+#endif
         } _sigfault;
 
         /* SIGPOLL */
@@ -667,6 +672,11 @@ typedef struct target_siginfo {
  */
 #define TARGET_SEGV_MAPERR     (1)  /* address not mapped to object */
 #define TARGET_SEGV_ACCERR     (2)  /* invalid permissions for mapped object */
+
+#ifdef TARGET_IA64
+/* si_flags: si_isr holds the interruption status register. */
+#define TARGET_ISR_VALID       1
+#endif
 #define TARGET_SEGV_BNDERR     (3)  /* failed address bound checks */
 
 /*

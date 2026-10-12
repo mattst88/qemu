@@ -453,6 +453,14 @@ static void tswap_siginfo(target_siginfo_t *tinfo,
     case QEMU_SI_FAULT:
         __put_user(info->_sifields._sigfault._addr,
                    &tinfo->_sifields._sigfault._addr);
+#ifdef TARGET_IA64
+        __put_user(info->_sifields._sigfault._imm,
+                   &tinfo->_sifields._sigfault._imm);
+        __put_user(info->_sifields._sigfault._flags,
+                   &tinfo->_sifields._sigfault._flags);
+        __put_user(info->_sifields._sigfault._isr,
+                   &tinfo->_sifields._sigfault._isr);
+#endif
         break;
     case QEMU_SI_CHLD:
         __put_user(info->_sifields._sigchld._pid,
@@ -732,6 +740,11 @@ void force_sig_fault(int sig, int code, abi_ulong addr)
     info.si_errno = 0;
     info.si_code = code;
     info._sifields._sigfault._addr = addr;
+#ifdef TARGET_IA64
+    /* Every fault but a break instruction reports what cr.isr held. */
+    info._sifields._sigfault._flags = TARGET_ISR_VALID;
+    info._sifields._sigfault._isr = cpu_env(cpu)->cr_isr;
+#endif
     queue_signal(cpu_env(cpu), sig, QEMU_SI_FAULT, &info);
 }
 
