@@ -1681,6 +1681,7 @@ typedef struct elf64_shdr {
 /* Notes used in ET_CORE */
 #define NT_PRSTATUS         1
 #define NT_FPREGSET         2
+#define NT_FILE             0x46494c45
 #define NT_PRFPREG          2
 #define NT_PRPSINFO         3
 #define NT_TASKSTRUCT       4

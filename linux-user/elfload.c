@@ -2456,6 +2456,76 @@ static int wmr_fill_region_phdr(void *opaque, vaddr start,
     return 0;
 }
 
+/*
+ * NT_FILE lists the file mappings, as fs/binfmt_elf.c:fill_files_note():
+ *
+ *     long count, page_size;
+ *     long start, end, file_ofs;   (count times, file_ofs in pages)
+ *     the file names, each NUL terminated, in the same order
+ */
+typedef struct {
+    IntervalTreeRoot *host_maps;
+    GArray *maps;
+    GString *names;
+} FileNote;
+
+static int wmr_fill_file_note(void *opaque, vaddr guest_start,
+                              vaddr guest_end, int flags)
+{
+    FileNote *fn = opaque;
+    uintptr_t host_start = (uintptr_t)g2h_untagged(guest_start);
+    uintptr_t host_last = (uintptr_t)g2h_untagged(guest_end - 1);
+
+    while (1) {
+        IntervalTreeNode *n =
+            interval_tree_iter_first(fn->host_maps, host_start, host_start);
+        MapInfo *mi = container_of(n, MapInfo, itree);
+        uintptr_t this_hlast;
+
+        if (!n) {
+            return 0;
+        }
+        this_hlast = MIN(host_last, n->last);
+
+        if (mi->dev && mi->path && mi->path[0] == '/') {
+            abi_ulong map[3] = {
+                tswapal(guest_start),
+                tswapal(h2g(this_hlast) + 1),
+                tswapal((mi->offset + host_start - n->start)
+                        / TARGET_PAGE_SIZE),
+            };
+
+            g_array_append_vals(fn->maps, map, 3);
+            g_string_append_len(fn->names, mi->path, strlen(mi->path) + 1);
+        }
+
+        if (this_hlast == host_last) {
+            return 0;
+        }
+        host_start = this_hlast + 1;
+        guest_start = h2g(host_start);
+    }
+}
+
+static size_t file_note_size(const FileNote *fn)
+{
+    return (2 + fn->maps->len) * sizeof(abi_ulong) + fn->names->len;
+}
+
+static void fill_file_note(void *data, const FileNote *fn)
+{
+    abi_ulong head[2] = {
+        tswapal(fn->maps->len / 3),
+        tswapal(TARGET_PAGE_SIZE),
+    };
+    size_t maps_size = fn->maps->len * sizeof(abi_ulong);
+
+    memcpy(data, head, sizeof(head));
+    data += sizeof(head);
+    memcpy(data, fn->maps->data, maps_size);
+    memcpy(data + maps_size, fn->names->str, fn->names->len);
+}
+
 static int wmr_write_region(void *opaque, vaddr start,
                             vaddr end, int flags)
 {
@@ -2487,6 +2557,7 @@ static int wmr_write_region(void *opaque, vaddr start,
  *     | - NT_PRSTATUS        |
  *     | - NT_PRSINFO         |
  *     | - NT_AUXV            |
+ *     | - NT_FILE            |
  *     +----------------------+ <-- aligned to target page
  *     | Process memory dump  |
  *     :                      :
@@ -2498,6 +2569,7 @@ static int wmr_write_region(void *opaque, vaddr start,
  * NT_PRSTATUS -> struct elf_prstatus (per thread)
  * NT_PRSINFO  -> struct elf_prpsinfo
  * NT_AUXV is array of { type, value } pairs (see fill_auxv_note()).
+ * NT_FILE lists the file mappings (see fill_file_note()).
  *
  * Format follows System V format as close as possible.  Current
  * version limitations are as follows:
@@ -2517,6 +2589,7 @@ static int elf_core_dump(int signr, const CPUArchState *env)
     const TaskState *ts = (const TaskState *)get_task_state((CPUState *)cpu);
     struct rlimit dumpsize;
     CountAndSizeRegions css;
+    FileNote fn = { };
     off_t offset, note_offset, data_offset;
     size_t note_size;
     int cpus, ret;
@@ -2549,6 +2622,14 @@ static int elf_core_dump(int signr, const CPUArchState *env)
         cpus++;
     }
 
+    fn.host_maps = read_self_maps();
+    fn.maps = g_array_new(false, false, sizeof(abi_ulong));
+    fn.names = g_string_new(NULL);
+    if (fn.host_maps) {
+        walk_memory_regions(&fn, wmr_fill_file_note);
+        free_self_maps(fn.host_maps);
+    }
+
     offset = sizeof(struct elfhdr);
     offset += (css.count + 1) * sizeof(struct elf_phdr);
     note_offset = offset;
@@ -2556,6 +2637,9 @@ static int elf_core_dump(int signr, const CPUArchState *env)
     offset += size_note("CORE", ts->info->auxv_len);
     offset += size_note("CORE", sizeof(struct target_elf_prpsinfo));
     offset += size_note("CORE", sizeof(struct target_elf_prstatus)) * cpus;
+    if (fn.maps->len) {
+        offset += size_note("CORE", file_note_size(&fn));
+    }
     note_size = offset - note_offset;
     data_offset = TARGET_PAGE_ALIGN(offset);
 
@@ -2608,6 +2692,11 @@ static int elf_core_dump(int signr, const CPUArchState *env)
                          sizeof(struct target_elf_prpsinfo));
         fill_prpsinfo_note(dptr, ts);
 
+        if (fn.maps->len) {
+            dptr = fill_note(&hptr, NT_FILE, "CORE", file_note_size(&fn));
+            fill_file_note(dptr, &fn);
+        }
+
         CPU_FOREACH(cpu_iter) {
             dptr = fill_note(&hptr, NT_PRSTATUS, "CORE",
                              sizeof(struct target_elf_prstatus));
@@ -2633,6 +2722,10 @@ static int elf_core_dump(int signr, const CPUArchState *env)
     cpu_list_unlock();
     if (fd >= 0) {
         close(fd);
+    }
+    if (fn.maps) {
+        g_array_free(fn.maps, true);
+        g_string_free(fn.names, true);
     }
     return ret;
 }
