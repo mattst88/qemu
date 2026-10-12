@@ -3938,8 +3938,14 @@ static void ia64_do_fnorm(CPUIA64State *env, uint32_t r1, uint32_t r2,
             env->fp.fr_int_origin[r1 / 64] |= 1ULL << (r1 % 64);
         }
     } else {
-        value = floatx80_round(ia64_fr_to_floatx80(env, r3),
-                               &env->fp.fp_status);
+        value = ia64_fr_to_floatx80(env, r3);
+        if (floatx80_is_signaling_nan(value, &env->fp.fp_status)) {
+            /* floatx80_round() passes a signalling NaN through. */
+            float_raise(float_flag_invalid, &env->fp.fp_status);
+            value = floatx80_silence_nan(value, &env->fp.fp_status);
+        } else {
+            value = floatx80_round(value, &env->fp.fp_status);
+        }
         ia64_fr_write_floatx80(env, r1, value);
     }
 }
