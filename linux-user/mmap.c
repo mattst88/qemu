@@ -1377,6 +1377,16 @@ abi_long target_madvise(abi_ulong start, abi_ulong len_in, int advice)
         return -TARGET_EINVAL;
     }
 
+    /*
+     * A guard is not a hint: the guest relies on a fault in the range.
+     * It is not emulated, so say that the advice is unknown, as a kernel
+     * older than 6.13 does.  glibc then protects the pages with mprotect.
+     */
+    if (advice == TARGET_MADV_GUARD_INSTALL ||
+        advice == TARGET_MADV_GUARD_REMOVE) {
+        return -TARGET_EINVAL;
+    }
+
     /* Translate for some architectures which have different MADV_xxx values */
     switch (advice) {
     case TARGET_MADV_DONTNEED:      /* alpha */
