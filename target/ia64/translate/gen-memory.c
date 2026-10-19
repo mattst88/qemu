@@ -332,6 +332,7 @@ static void ia64_gen_lfetch(const Ia64Instruction *insn)
                                 tcg_constant_i32(insn->slot));
         gen_set_label(done);
     }
+    gen_helper_lfetch_touch(tcg_env, addr);
 
     if (insn->reg_base_update) {
         ia64_gen_load_reg_base_update(insn, addr, increment, base_nat,

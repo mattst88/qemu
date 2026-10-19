@@ -120,6 +120,7 @@ DEF_HELPER_3(chk_a, i64, env, i64, i32)
 DEF_HELPER_4(probe, i64, env, i64, i32, i64)
 DEF_HELPER_5(probe_fault, void, env, i64, i32, i32, i64)
 DEF_HELPER_4(lfetch_fault, void, env, i64, i64, i32)
+DEF_HELPER_2(lfetch_touch, void, env, i64)
 DEF_HELPER_FLAGS_5(data_debug, TCG_CALL_NO_WG,
                    void, env, i64, i32, i64, i64)
 DEF_HELPER_FLAGS_3(instruction_debug, TCG_CALL_NO_WG,

@@ -5,6 +5,10 @@
 #include "exec/helper-proto.h"
 #include "arch/arch.h"
 #include "trace.h"
+#include "accel/tcg/cpu-ldst.h"
+#include "accel/tcg/cpu-mmu-index.h"
+#include "accel/tcg/probe.h"
+#include "exec/tlb-flags.h"
 
 void helper_tlb_serialize(CPUIA64State *env, uint32_t include_data,
                           uint32_t include_inst)
@@ -98,6 +102,26 @@ void helper_lfetch_fault(CPUIA64State *env, uint64_t va,
                          uint64_t fault_info, uint32_t hint)
 {
     ia64_mmu_lfetch_fault(env, va, fault_info, hint);
+}
+
+/*
+ * TCG models no caches, so an lfetch has no effect on the guest.  Read a
+ * byte at its address for plugins that model them, where it is mapped.
+ */
+void helper_lfetch_touch(CPUIA64State *env, uint64_t va)
+{
+#ifdef CONFIG_PLUGIN
+    CPUState *cs = env_cpu(env);
+    int mmu_idx = cpu_mmu_index(cs, false);
+    void *host;
+
+    if (!cs->neg.plugin_mem_cbs ||
+        (probe_access_flags(env, va, 1, MMU_DATA_LOAD, mmu_idx, true, &host,
+                            0) & TLB_INVALID_MASK)) {
+        return;
+    }
+    cpu_ldub_mmuidx_ra(env, va, mmu_idx, 0);
+#endif
 }
 
 void helper_data_debug(CPUIA64State *env, uint64_t va, uint32_t size,
