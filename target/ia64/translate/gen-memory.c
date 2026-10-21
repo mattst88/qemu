@@ -1342,6 +1342,8 @@ IA64GenResult ia64_gen_memory(DisasContext *ctx,
                                        IA64_NAT_NON_ACCESS);
         gen_helper_fc(tcg_env, ia64_gr_src(op->base),
                       tcg_constant_i32(insn->opcode == IA64_OP_FC_I));
+        /* Show plugins which line it flushes, as an lfetch does. */
+        gen_helper_lfetch_touch(tcg_env, ia64_gr_src(op->base));
         break;
     case IA64_OP_INVALA:
         if (ctx->memory.full_alat) {
