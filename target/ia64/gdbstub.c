@@ -225,7 +225,9 @@ int ia64_cpu_gdb_write_register(CPUState *cs, uint8_t *buf, int reg)
  * asks for features, as there is no core XML, but plugins can only read
  * what a feature lists.  These reads have no side effects, unlike the core
  * ones, which flush the RSE: pr is the 64 physical predicates, rotation
- * already applied, as "mov rN = pr" would read them.
+ * already applied, as "mov rN = pr" would read them, and f0-f127 are the
+ * floating-point registers by logical number, in the 128-bit spill format
+ * stf.spill writes.
  */
 static GDBFeature ia64_plugin_feature;
 
@@ -236,6 +238,16 @@ static int ia64_gdb_get_plugin_reg(CPUState *cs, GByteArray *buf, int n)
     switch (n) {
     case 0:
         return gdb_get_reg64(buf, ia64_gdb_read_pr(env));
+    case 1 ... IA64_FR_COUNT: {
+        uint64_t low, high;
+        unsigned freg = n - 1;
+
+        if (freg >= IA64_FR_ROTATING_BASE) {
+            ia64_sync_rotating_fr(env);
+        }
+        ia64_fpreg_to_spill(env, freg, &low, &high);
+        return gdb_get_reg128(buf, high, low);
+    }
     }
     return 0;
 }
@@ -255,6 +267,13 @@ void ia64_gdb_register_plugin_regs(CPUState *cs)
                                  cs->gdb_num_regs);
         gdb_feature_builder_append_reg(&builder, "pr", 64, 0, "uint64",
                                        NULL);
+        for (int i = 0; i < IA64_FR_COUNT; i++) {
+            /* The feature keeps the name. */
+            char *name = g_strdup_printf("f%d", i);
+
+            gdb_feature_builder_append_reg(&builder, name, 128, 1 + i,
+                                           "uint128", NULL);
+        }
         gdb_feature_builder_end(&builder);
     }
     gdb_register_coprocessor(cs, ia64_gdb_get_plugin_reg,
