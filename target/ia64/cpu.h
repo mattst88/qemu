@@ -1775,6 +1775,7 @@ uint64_t ia64_gdb_flush_rse(CPUIA64State *env);
 #define IA64_GDB_BP_ADDR(bundle, slot) (((bundle) & ~15ULL) | (slot) | 4)
 
 uint64_t ia64_gdb_read_bsp(const CPUIA64State *env);
+void ia64_gdb_register_plugin_regs(CPUState *cs);
 uint64_t ia64_user_get_pr(CPUIA64State *env);
 void ia64_user_set_pr(CPUIA64State *env, uint64_t value);
 void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp);

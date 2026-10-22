@@ -2006,6 +2006,7 @@ static void ia64_cpu_realize(DeviceState *dev, Error **errp)
     cpu->itm_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, ia64_itm_timer_cb, cpu);
 #endif
 
+    ia64_gdb_register_plugin_regs(cs);
     qemu_init_vcpu(cs);
     cpu_reset(cs);
 #ifndef CONFIG_USER_ONLY

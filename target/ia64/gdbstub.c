@@ -6,6 +6,7 @@
 #include "arch/system.h"
 #include "debug.h"
 #include "fpreg.h"
+#include "exec/gdbstub.h"
 #include "gdbstub/helpers.h"
 
 /*
@@ -217,4 +218,45 @@ int ia64_cpu_gdb_write_register(CPUState *cs, uint8_t *buf, int reg)
     }
 
     return 8;
+}
+
+/*
+ * Registers for plugins only.  GDB gets the fixed layout above and never
+ * asks for features, as there is no core XML, but plugins can only read
+ * what a feature lists.  These reads have no side effects, unlike the core
+ * ones, which flush the RSE: pr is the 64 physical predicates, rotation
+ * already applied, as "mov rN = pr" would read them.
+ */
+static GDBFeature ia64_plugin_feature;
+
+static int ia64_gdb_get_plugin_reg(CPUState *cs, GByteArray *buf, int n)
+{
+    CPUIA64State *env = cpu_env(cs);
+
+    switch (n) {
+    case 0:
+        return gdb_get_reg64(buf, ia64_gdb_read_pr(env));
+    }
+    return 0;
+}
+
+static int ia64_gdb_set_plugin_reg(CPUState *cs, uint8_t *buf, int n)
+{
+    return 0;
+}
+
+void ia64_gdb_register_plugin_regs(CPUState *cs)
+{
+    if (!ia64_plugin_feature.xml) {
+        GDBFeatureBuilder builder;
+
+        gdb_feature_builder_init(&builder, &ia64_plugin_feature,
+                                 "org.qemu.ia64.plugin", "ia64-plugin.xml",
+                                 cs->gdb_num_regs);
+        gdb_feature_builder_append_reg(&builder, "pr", 64, 0, "uint64",
+                                       NULL);
+        gdb_feature_builder_end(&builder);
+    }
+    gdb_register_coprocessor(cs, ia64_gdb_get_plugin_reg,
+                             ia64_gdb_set_plugin_reg, &ia64_plugin_feature);
 }
