@@ -230,6 +230,10 @@ typedef struct IA64AlatState {
     bool alat_full;
     /* Low address bits a store compares with entries; 0 for all. */
     uint8_t alat_addr_bits;
+    /* Whether a full ALAT replaces its oldest entry, and entries' ages. */
+    bool alat_fifo;
+    uint64_t alat_seq[IA64_ALAT_ENTRIES];
+    uint64_t alat_next_seq;
     /* Transient write-scope state for one faultable CPU store. */
     bool write_active;
     bool write_observed;

@@ -1538,6 +1538,7 @@ struct ArchCPU {
     bool boot_info_pending;
     bool alat_full;
     uint8_t alat_addr_bits;
+    bool alat_fifo;
     uint64_t firmware_compat_flags;
     uint32_t socket_id;
     uint32_t core_id;

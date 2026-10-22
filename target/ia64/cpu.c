@@ -949,6 +949,7 @@ static void ia64_cpu_reset_hold(Object *obj, ResetType type)
     cpu->mca_rse_valid = false;
     cpu->env.alat_state.alat_full = cpu->alat_full;
     cpu->env.alat_state.alat_addr_bits = cpu->alat_addr_bits;
+    cpu->env.alat_state.alat_fifo = cpu->alat_fifo;
     cpu->env.fp.fr[IA64_FR_ONE_INDEX] = IA64_FR_ONE;
     cpu->env.pr[IA64_PR_TRUE] = 1;
     cpu->env.psr = 0;
@@ -2169,11 +2170,14 @@ static const TCGCPUOps ia64_tcg_ops = {
  * With alat-addr-bits, a store kills the entries whose address matches its
  * own in only that many low bits, as hardware that keeps partial addresses
  * does: the Itanium 2 compares 20 bits, or 12 against a check one cycle or
- * less after the store.
+ * less after the store.  With alat-fifo, an advanced load that finds the
+ * ALAT full replaces its oldest entry instead of making none, approximating
+ * the Itanium 2's replacement pointers.
  */
 static const Property ia64_cpu_properties[] = {
     DEFINE_PROP_BOOL("alat-full", IA64CPU, alat_full, false),
     DEFINE_PROP_UINT8("alat-addr-bits", IA64CPU, alat_addr_bits, 0),
+    DEFINE_PROP_BOOL("alat-fifo", IA64CPU, alat_fifo, false),
 };
 #endif
 

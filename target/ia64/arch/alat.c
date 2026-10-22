@@ -324,11 +324,23 @@ static void ia64_set_alat(CPUIA64State *env, uint32_t reg, uint64_t addr,
     /* Registration always replaces the unique entry for this register. */
     i = env->alat_state.alat_reg_slot[fp][reg] - 1;
     if (i < 0) {
-        if (env->alat_state.alat_occupied == UINT32_MAX) {
+        if (env->alat_state.alat_occupied != UINT32_MAX) {
+            i = ctz32(~env->alat_state.alat_occupied);
+        } else if (env->alat_state.alat_fifo) {
+            const uint64_t *seq = env->alat_state.alat_seq;
+
+            i = 0;
+            for (int j = 1; j < IA64_ALAT_ENTRIES; j++) {
+                if (seq[j] < seq[i]) {
+                    i = j;
+                }
+            }
+            ia64_alat_invalidate_entry(env, &env->alat_state.alat[i]);
+        } else {
             return;
         }
-        i = ctz32(~env->alat_state.alat_occupied);
     }
+    env->alat_state.alat_seq[i] = ++env->alat_state.alat_next_seq;
     if (!env->alat_state.alat[i].valid) {
         env->alat_state.alat_active_count++;
     }
