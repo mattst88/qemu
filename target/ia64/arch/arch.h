@@ -185,7 +185,8 @@ uint64_t ia64_rse_cloop_fill_st1(CPUIA64State *env, uint32_t base_reg,
                                  uintptr_t ra);
 
 void ia64_invalidate_stacked_alat(CPUIA64State *env);
-void ia64_invalidate_rotating_fp_alat(CPUIA64State *env);
+void ia64_alat_rotate(CPUIA64State *env, uint32_t base, uint32_t count,
+                      uint32_t shift, bool fp);
 void ia64_invalidate_alat_reg_range(CPUIA64State *env, uint32_t first,
                                     uint32_t last, bool fp);
 void ia64_invalidate_alat_store(CPUIA64State *env, uint64_t addr,

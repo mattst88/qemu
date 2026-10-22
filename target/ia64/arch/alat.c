@@ -25,8 +25,6 @@ static inline void physical_memory_write_generation_advance(void)
 #endif
 #include "arch/arch.h"
 
-#define IA64_ROTATING_FR_BASE 32
-
 static void ia64_alat_invalidate_entry(CPUIA64State *env,
                                        IA64AlatEntry *entry)
 {
@@ -208,10 +206,35 @@ void ia64_invalidate_stacked_alat(CPUIA64State *env)
                                    false);
 }
 
-void ia64_invalidate_rotating_fp_alat(CPUIA64State *env)
+/*
+ * The ALAT tags entries by physical register, so a rotation leaves them
+ * valid under the logical names that now map to their registers: with
+ * SHIFT 1 (br.ctop), the entry of logical register BASE + k moves to
+ * BASE + k + 1, wrapping within COUNT.  Software-pipelined loops rely on
+ * this to check an advanced load in a later stage.
+ */
+void ia64_alat_rotate(CPUIA64State *env, uint32_t base, uint32_t count,
+                      uint32_t shift, bool fp)
 {
-    ia64_invalidate_alat_reg_range(env, IA64_ROTATING_FR_BASE, IA64_FR_COUNT,
-                                   true);
+    uint8_t *slot = env->alat_state.alat_reg_slot[fp];
+    uint32_t occupied = env->alat_state.alat_occupied;
+
+    if (count == 0 || shift % count == 0 ||
+        env->alat_state.alat_active_count == 0) {
+        return;
+    }
+    memset(&slot[base], 0, count * sizeof(*slot));
+    while (occupied) {
+        unsigned i = ctz32(occupied);
+        IA64AlatEntry *entry = &env->alat_state.alat[i];
+
+        occupied &= occupied - 1;
+        if (entry->fp == fp && entry->reg >= base &&
+            entry->reg < base + count) {
+            entry->reg = base + (entry->reg - base + shift) % count;
+            slot[entry->reg] = i + 1;
+        }
+    }
 }
 
 /* ---- Advanced Load Address Table check ---- */

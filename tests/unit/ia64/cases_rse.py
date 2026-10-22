@@ -85,6 +85,7 @@ from .encoding import (
     dtr_setup_bundles,
     flushrs_enc,
     itc_d,
+    getf_sig,
     itr_d,
     itr_i,
     ld2,
@@ -94,6 +95,8 @@ from .encoding import (
     ld8_a,
     ld8_c_nc,
     ld8_fill_postinc,
+    ldf8_a,
+    ldf8_c_nc,
     ld8_postinc,
     ld8_s_postinc,
     lfetch_postinc,
@@ -105,6 +108,7 @@ from .encoding import (
     mov_gr_psr_full,
     mov_dbr_indexed_write,
     mov_i_imm_ar,
+    mov_lc_imm,
     mov_lc_gr,
     mov_m_ar_gr,
     mov_m_cr_gr,
@@ -5570,6 +5574,45 @@ test_rse_call_invalidates_stacked_alat = require_registers(
          0),
     ], {"ip": 0x60, "r36": CHECK_LOAD_DATA}, entry=0x10)
 
+# The ALAT tags physical registers, so an advanced load's entry follows
+# its register through br.ctop: logical r32 becomes r33.
+test_rse_ctop_rotates_stacked_alat = require_registers(
+    "rse_ctop_rotates_stacked_alat", [
+        (0x10, 0x00, addl(3, 0x100, 0), alloc(35, 16, 16, 1, 0),
+         nop_i()),
+        (0x20, 0x00, ld8_a(32, 3), mov_lc_imm(0),
+         mov_i_imm_ar(66, 2)),
+        (0x30, 0x10, nop_m(), nop_i(),
+         br_ctop_few(0x30, 0x40)),
+        (0x40, *movl_mlx(33, 0x55)),
+        (0x50, 0x00, ld8_c_nc(33, 3), nop_i(),
+         nop_i()),
+        (0x60, 0x10, nop_m(), nop_i(),
+         br_cond(0x60, 0x60)),
+        (0x100, 0x00, 0x123456789abcdef0, 0,
+         0),
+    ], {"ip": 0x60, "r33": 0x55}, entry=0x10)
+
+test_rse_ctop_rotates_fp_alat = require_registers(
+    "rse_ctop_rotates_fp_alat", [
+        (0x10, 0x00, addl(3, 0x100, 0), addl(4, 0x55, 0),
+         mov_lc_imm(0)),
+        (0x20, 0x00, ldf8_a(32, 3), mov_i_imm_ar(66, 2),
+         nop_i()),
+        (0x30, 0x10, nop_m(), nop_i(),
+         br_ctop_few(0x30, 0x40)),
+        (0x40, 0x00, setf_sig(33, 4), nop_i(),
+         nop_i()),
+        (0x50, 0x00, ldf8_c_nc(33, 3), nop_i(),
+         nop_i()),
+        (0x60, 0x00, getf_sig(8, 33), nop_i(),
+         nop_i()),
+        (0x70, 0x10, nop_m(), nop_i(),
+         br_cond(0x70, 0x70)),
+        (0x100, 0x00, 0x123456789abcdef0, 0,
+         0),
+    ], {"ip": 0x70, "r8": 0x55}, entry=0x10)
+
 test_cover_b_ignored_fields_decode = require_registers(
     "cover_b_ignored_fields_decode", [
         (0x10, 0x00, nop_m(), alloc(5, 8, 4, 0, 0), nop_i()),
@@ -6159,6 +6202,8 @@ CASE_NAMES = (
     'rse_bspstore_partial_rnat_store_preserves_backed_prefix',
     'rse_bspstore_write_rebases_dirty_partition',
     'rse_call_invalidates_stacked_alat',
+    'rse_ctop_rotates_stacked_alat',
+    'rse_ctop_rotates_fp_alat',
     'rse_seventy_output_handoff_preserves_kernel_locals',
     'rse_small_kernel_frame_preserves_counter_across_spill_calls',
     'rse_call_maps_all_high_output_args',

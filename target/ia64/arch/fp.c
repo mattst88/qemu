@@ -533,13 +533,12 @@ void ia64_set_cfm_rrb_fr(CPUIA64State *env, uint32_t new_rrb)
     }
 
     env->cfm_rrb_fr = new_rrb;
+    ia64_alat_rotate(env, IA64_ROTATING_FR_BASE, IA64_ROTATING_FR_COUNT,
+                     (old_rrb + IA64_ROTATING_FR_COUNT - new_rrb) %
+                     IA64_ROTATING_FR_COUNT, true);
     if (likely(!env->fp.rotating_fr_live)) {
         env->fp.rotating_fr_materialized_rrb = new_rrb;
-        return;
     }
-
-    /* Rotation invalidates architected ALAT tags even while data stays lazy. */
-    ia64_invalidate_rotating_fp_alat(env);
 }
 
 typedef enum IA64FPBinaryOperation {

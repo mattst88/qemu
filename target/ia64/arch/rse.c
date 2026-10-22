@@ -2199,8 +2199,7 @@ static void ia64_rotate_rotating_gr_right(CPUIA64State *env)
     env->nat[1] = (nat[0] >> 32) | (nat[1] << 32);
     ia64_rotate_low_bits_left_one(env->rse.rse_gr_dirty, count);
 
-    ia64_invalidate_alat_reg_range(env, IA64_STACKED_GR_BASE,
-                                   IA64_STACKED_GR_BASE + count, false);
+    ia64_alat_rotate(env, IA64_STACKED_GR_BASE, count, 1, false);
 }
 
 static void ia64_rotate_loop_regs(CPUIA64State *env)
