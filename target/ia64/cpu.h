@@ -1756,13 +1756,6 @@ static inline uint64_t ia64_va_canonicalize(const CPUIA64State *env,
     return region | payload;
 }
 
-#ifdef CONFIG_USER_ONLY
-/*
- * Signal frame support for linux-user (target/ia64/arch/rse.c).  The frame
- * carries the architected register state as a flat structure, so the
- * predicates have to be packed into the architected bitmap and the register
- * stack has to be spilled to the backing store before a handler runs.
- */
 uint64_t ia64_gdb_flush_rse(CPUIA64State *env);
 
 /*
@@ -1776,6 +1769,14 @@ uint64_t ia64_gdb_flush_rse(CPUIA64State *env);
 
 uint64_t ia64_gdb_read_bsp(const CPUIA64State *env);
 void ia64_gdb_register_plugin_regs(CPUState *cs);
+
+#ifdef CONFIG_USER_ONLY
+/*
+ * Signal frame support for linux-user (target/ia64/arch/rse.c).  The frame
+ * carries the architected register state as a flat structure, so the
+ * predicates have to be packed into the architected bitmap and the register
+ * stack has to be spilled to the backing store before a handler runs.
+ */
 uint64_t ia64_user_get_pr(CPUIA64State *env);
 void ia64_user_set_pr(CPUIA64State *env, uint64_t value);
 void ia64_user_signal_enter(CPUIA64State *env, uint64_t *cfm, uint64_t *bsp);
