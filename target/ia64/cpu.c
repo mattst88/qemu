@@ -36,6 +36,7 @@
 #include "tcg/debug-assert.h"
 #include "exec/translator.h"
 #include "exec/helper-proto.h"
+#include "hw/core/qdev-properties.h"
 #ifndef CONFIG_USER_ONLY
 #include "system/memory.h"
 #include "system/address-spaces.h"
@@ -2157,6 +2158,18 @@ static const TCGCPUOps ia64_tcg_ops = {
 #define IA64_FREQUENCY_RATIO(numerator, denominator) \
     (((uint64_t)(numerator) << 32) | (denominator))
 
+#ifdef CONFIG_USER_ONLY
+/*
+ * A machine chooses the ALAT model for its CPUs; in user mode it is this
+ * property's. Off, chk.a always goes to its recovery code and ld.c always
+ * reloads, which the architecture allows; on, they hit where the advanced
+ * load's entry survives, as on hardware.
+ */
+static const Property ia64_cpu_properties[] = {
+    DEFINE_PROP_BOOL("alat-full", IA64CPU, alat_full, false),
+};
+#endif
+
 static void ia64_cpu_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
@@ -2166,6 +2179,9 @@ static void ia64_cpu_class_init(ObjectClass *oc, const void *data)
 
     device_class_set_parent_realize(dc, ia64_cpu_realize,
                                     &icc->parent_realize);
+#ifdef CONFIG_USER_ONLY
+    device_class_set_props(dc, ia64_cpu_properties);
+#endif
     device_class_set_parent_unrealize(dc, ia64_cpu_unrealize,
                                       &icc->parent_unrealize);
     resettable_class_set_parent_phases(rc, NULL, ia64_cpu_reset_hold, NULL,

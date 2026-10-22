@@ -210,6 +210,14 @@ bool ia64_data_address_to_phys_attr(CPUIA64State *env, uint64_t va,
                                     uint64_t *pa,
                                     IA64MemorySpeculation *spec)
 {
+#ifdef CONFIG_USER_ONLY
+    /* Guest addresses are host-mapped, and ordinary memory is cacheable. */
+    *pa = va;
+    if (spec) {
+        *spec = IA64_MEM_SPECULATIVE;
+    }
+    return true;
+#else
     if (!(env->psr & IA64_PSR_DT)) {
         *pa = ia64_physical_address(va);
         if (spec) {
@@ -222,6 +230,7 @@ bool ia64_data_address_to_phys_attr(CPUIA64State *env, uint64_t va,
 
     return ia64_data_address_to_mapped_phys_attr(
         env, va, false, ia64_psr_cpl(env->psr), pa, spec);
+#endif
 }
 
 bool ia64_data_address_to_phys(CPUIA64State *env, uint64_t va,
