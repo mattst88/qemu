@@ -948,6 +948,7 @@ static void ia64_cpu_reset_hold(Object *obj, ResetType type)
     memset(&cpu->env, 0, sizeof(cpu->env));
     cpu->mca_rse_valid = false;
     cpu->env.alat_state.alat_full = cpu->alat_full;
+    cpu->env.alat_state.alat_addr_bits = cpu->alat_addr_bits;
     cpu->env.fp.fr[IA64_FR_ONE_INDEX] = IA64_FR_ONE;
     cpu->env.pr[IA64_PR_TRUE] = 1;
     cpu->env.psr = 0;
@@ -2164,9 +2165,15 @@ static const TCGCPUOps ia64_tcg_ops = {
  * property's. Off, chk.a always goes to its recovery code and ld.c always
  * reloads, which the architecture allows; on, they hit where the advanced
  * load's entry survives, as on hardware.
+ *
+ * With alat-addr-bits, a store kills the entries whose address matches its
+ * own in only that many low bits, as hardware that keeps partial addresses
+ * does: the Itanium 2 compares 20 bits, or 12 against a check one cycle or
+ * less after the store.
  */
 static const Property ia64_cpu_properties[] = {
     DEFINE_PROP_BOOL("alat-full", IA64CPU, alat_full, false),
+    DEFINE_PROP_UINT8("alat-addr-bits", IA64CPU, alat_addr_bits, 0),
 };
 #endif
 

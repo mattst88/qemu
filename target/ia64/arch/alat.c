@@ -200,6 +200,31 @@ void ia64_invalidate_alat_phys_range(CPUIA64State *env,
     }
 }
 
+/* Kill the entries whose address overlaps [pa, pa + size) in its low bits. */
+static void ia64_invalidate_alat_partial_range(CPUIA64State *env,
+                                               uint64_t pa, uint64_t size,
+                                               unsigned bits)
+{
+    uint64_t mask = MAKE_64BIT_MASK(0, bits);
+    uint32_t occupied;
+
+    if (ia64_alat_sync_memory_writes(env)) {
+        return;
+    }
+
+    occupied = env->alat_state.alat_occupied;
+    while (occupied) {
+        unsigned i = ctz32(occupied);
+        IA64AlatEntry *entry = &env->alat_state.alat[i];
+
+        occupied &= occupied - 1;
+        if (((entry->phys_addr - pa) & mask) < size ||
+            ((pa - entry->phys_addr) & mask) < entry->size) {
+            ia64_alat_invalidate_entry(env, entry);
+        }
+    }
+}
+
 void ia64_invalidate_stacked_alat(CPUIA64State *env)
 {
     ia64_invalidate_alat_reg_range(env, IA64_STACKED_GR_BASE, IA64_GR_COUNT,
@@ -572,5 +597,11 @@ void ia64_invalidate_alat_store(CPUIA64State *env, uint64_t addr,
         return;
     }
 
+    if (env->alat_state.alat_addr_bits != 0 &&
+        env->alat_state.alat_addr_bits < 64) {
+        ia64_invalidate_alat_partial_range(env, pa, size,
+                                           env->alat_state.alat_addr_bits);
+        return;
+    }
     ia64_invalidate_alat_phys_range(env, pa, size);
 }
